@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   Trophy,
@@ -11,6 +11,7 @@ import {
   Menu,
   Bell,
   Search,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -24,9 +25,75 @@ const navigation = [
   { name: "Llaves", href: "/brackets", icon: GitMerge },
 ];
 
+// Datos globales para búsqueda
+const tournaments = [
+  { id: 1, name: "Torneo Interfacultades 2026-I", sport: "Fútbol", type: "tournament", href: "/tournaments" },
+  { id: 2, name: "Copa ETITC Relámpago", sport: "Baloncesto", type: "tournament", href: "/tournaments" },
+  { id: 3, name: "Torneo de Novatos", sport: "Voleibol", type: "tournament", href: "/tournaments" },
+  { id: 4, name: "Campeonato Abierto", sport: "Tenis de Mesa", type: "tournament", href: "/tournaments" },
+];
+
+const teams = [
+  { id: 1, name: "Ingeniería A", sport: "Fútbol", type: "team", href: "/teams" },
+  { id: 2, name: "Sistemas B", sport: "Fútbol", type: "team", href: "/teams" },
+  { id: 3, name: "Mecatrónica", sport: "Baloncesto", type: "team", href: "/teams" },
+  { id: 4, name: "Eléctrica", sport: "Voleibol", type: "team", href: "/teams" },
+  { id: 5, name: "Industrial", sport: "Baloncesto", type: "team", href: "/teams" },
+  { id: 6, name: "Docentes TM", sport: "Tenis de Mesa", type: "team", href: "/teams" },
+];
+
+const players = [
+  { id: 1, name: "Carlos Gómez", sport: "Fútbol", team: "Ingeniería A", type: "player", href: "/players" },
+  { id: 2, name: "Andrés Silva", sport: "Fútbol", team: "Sistemas B", type: "player", href: "/players" },
+  { id: 3, name: "Luis Martínez", sport: "Baloncesto", team: "Mecatrónica", type: "player", href: "/players" },
+  { id: 4, name: "Juan Pérez", sport: "Voleibol", team: "Eléctrica", type: "player", href: "/players" },
+  { id: 5, name: "Pedro Sánchez", sport: "Baloncesto", team: "Industrial", type: "player", href: "/players" },
+  { id: 6, name: "Prof. Ramírez", sport: "Tenis de Mesa", team: "Docentes TM", type: "player", href: "/players" },
+  { id: 7, name: "Felipe Osorio", sport: "Fútbol", team: "Ingeniería A", type: "player", href: "/players" },
+  { id: 8, name: "Miguel Rojas", sport: "Fútbol", team: "Sistemas B", type: "player", href: "/players" },
+];
+
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Buscar en todos los datos
+  const searchResults = searchQuery.trim() === "" ? [] : [
+    ...tournaments.filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase()) || t.sport.toLowerCase().includes(searchQuery.toLowerCase())),
+    ...teams.filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase()) || t.sport.toLowerCase().includes(searchQuery.toLowerCase())),
+    ...players.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sport.toLowerCase().includes(searchQuery.toLowerCase()) || p.team.toLowerCase().includes(searchQuery.toLowerCase()))
+  ].slice(0, 8); // Limitar a 8 resultados
+
+  const handleSearchNavigate = (result: any) => {
+    navigate(result.href);
+    setSearchQuery("");
+    setShowSearchResults(false);
+  };
+
+  const getResultIcon = (type: string) => {
+    switch(type) {
+      case "tournament":
+        return <Trophy className="w-4 h-4 text-yellow-500" />;
+      case "team":
+        return <Users className="w-4 h-4 text-blue-500" />;
+      case "player":
+        return <UserSquare2 className="w-4 h-4 text-purple-500" />;
+      default:
+        return null;
+    }
+  };
+
+  const getResultLabel = (type: string) => {
+    switch(type) {
+      case "tournament": return "Torneo";
+      case "team": return "Equipo";
+      case "player": return "Jugador";
+      default: return "";
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -107,7 +174,43 @@ export function Layout() {
               type="text"
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-green-500 focus:border-green-500 sm:text-sm transition-colors"
               placeholder="Buscar torneo, equipo, jugador o deporte..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setShowSearchResults(e.target.value.trim() !== "");
+              }}
+              onFocus={() => searchQuery.trim() !== "" && setShowSearchResults(true)}
+              onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
             />
+            
+            {/* Dropdown de resultados */}
+            {showSearchResults && searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+                {searchResults.map((result, index) => (
+                  <button
+                    key={`${result.type}-${result.id}`}
+                    onClick={() => handleSearchNavigate(result)}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 flex items-center space-x-3 transition-colors"
+                  >
+                    {getResultIcon(result.type)}
+                    <div className="flex-1 text-sm">
+                      <p className="font-medium text-gray-900">{result.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {result.type === "tournament" && `${result.sport}`}
+                        {result.type === "team" && `${result.sport}`}
+                        {result.type === "player" && `${result.sport} • ${result.team}`}
+                        {' | '}{getResultLabel(result.type)}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+                {searchResults.length === 0 && searchQuery.trim() !== "" && (
+                  <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                    No se encontraron resultados
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           </div>
 
