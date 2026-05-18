@@ -1,67 +1,45 @@
 import { Plus, Search, Calendar, Users, Trophy, X, Edit2, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogTrigger } from "../components/ui/dialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { createTournament, updateTournament, deleteTournament, getTournaments } from "../../../firebase";
+interface Tournament {
+  id: string;
+  name: string;
+  status: string;
+  sport: string;
+  teams: number;
+  startDate: string | Date;
+  endDate: string | Date;
+}
 
+interface FormData {
+  name: string;
+  sport: string;
+  teams: number;
+  startDate: string;
+  endDate: string;
+  status: string;
+}
 export function Tournaments() {
-  const [tournaments, setTournaments] = useState([
-    {
-      id: 1,
-      name: "Torneo Interfacultades 2026-I",
-      status: "Activo",
-      sport: "Fútbol",
-      teams: 16,
-      startDate: "15 Mar 2026",
-      endDate: "30 Jun 2026",
-      color: "bg-green-100 text-green-800"
-    },
-    {
-      id: 2,
-      name: "Copa ETITC Relámpago",
-      status: "Inscripciones",
-      sport: "Baloncesto",
-      teams: 8,
-      startDate: "1 Abr 2026",
-      endDate: "5 Abr 2026",
-      color: "bg-orange-100 text-orange-800"
-    },
-    {
-      id: 3,
-      name: "Torneo de Novatos",
-      status: "Activo",
-      sport: "Voleibol",
-      teams: 12,
-      startDate: "1 Feb 2026",
-      endDate: "15 May 2026",
-      color: "bg-blue-100 text-blue-800"
-    },
-    {
-      id: 4,
-      name: "Campeonato Abierto",
-      status: "Activo",
-      sport: "Tenis de Mesa",
-      teams: 32,
-      startDate: "15 Mar 2026",
-      endDate: "30 Abr 2026",
-      color: "bg-red-100 text-red-800"
-    },
-  ]);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
-  const [selectedTournament, setSelectedTournament] = useState<any>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   
   // Estados para filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [sportFilter, setSportFilter] = useState("Todos");
   const [statusFilter, setStatusFilter] = useState("Todos");
   
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: "",
     sport: "",
     teams: 0,
@@ -70,7 +48,96 @@ export function Tournaments() {
     status: "Inscripciones"
   });
 
-  const handleCreateTournament = (e: React.FormEvent) => {
+  // Cargar torneos desde Firebase
+  useEffect(() => {
+    loadTournaments();
+  }, []);
+
+  const loadTournaments = async () => {
+    try {
+      setLoading(true);
+      const data = await getTournaments();
+      const formattedTournaments = data.map(t => {
+        // Manejar timestamps de Firestore
+        let startDate = t.startDate;
+        let endDate = t.endDate;
+        
+        // Si son timestamps de Firestore, convertir a Date
+        if (t.startDate && typeof t.startDate.toDate === 'function') {
+          startDate = t.startDate.toDate();
+        } else if (typeof t.startDate === 'string') {
+          startDate = new Date(t.startDate);
+        }
+        
+        if (t.endDate && typeof t.endDate.toDate === 'function') {
+          endDate = t.endDate.toDate();
+        } else if (typeof t.endDate === 'string') {
+          endDate = new Date(t.endDate);
+        }
+        
+        return {
+          ...t,
+          startDate: startDate,
+          endDate: endDate
+        };
+      });
+      setTournaments(formattedTournaments);
+    } catch (error: any) {
+      console.error('Error al cargar torneos:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (date: string | Date | any): string => {
+    if (!date) return 'Sin fecha';
+    
+    let dateObj: Date;
+    
+    // Manejar Timestamps de Firestore
+    if (date && typeof date.toDate === 'function') {
+      dateObj = date.toDate();
+    } else if (date instanceof Date) {
+      dateObj = date;
+    } else if (typeof date === 'string') {
+      dateObj = new Date(date);
+    } else {
+      return 'Sin fecha';
+    }
+    
+    // Verificar que sea una fecha válida
+    if (isNaN(dateObj.getTime())) {
+      return 'Sin fecha';
+    }
+    
+    return dateObj.toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+  };
+
+  const formatDateForInput = (dateString: string | Date | any): string => {
+    if (!dateString) return '';
+    
+    let dateObj: Date;
+    
+    // Manejar Timestamps de Firestore
+    if (dateString && typeof dateString.toDate === 'function') {
+      dateObj = dateString.toDate();
+    } else if (dateString instanceof Date) {
+      dateObj = dateString;
+    } else if (typeof dateString === 'string') {
+      dateObj = new Date(dateString);
+    } else {
+      return '';
+    }
+    
+    // Verificar que sea una fecha válida
+    if (isNaN(dateObj.getTime())) {
+      return '';
+    }
+    
+    return dateObj.toISOString().split('T')[0];
+  };
+
+  const handleCreateTournament = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name || !formData.sport || !formData.startDate || !formData.endDate) {
@@ -78,30 +145,48 @@ export function Tournaments() {
       return;
     }
 
-    const newTournament = {
-      id: tournaments.length + 1,
-      name: formData.name,
-      status: formData.status,
-      sport: formData.sport,
-      teams: formData.teams,
-      startDate: new Date(formData.startDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
-      endDate: new Date(formData.endDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
-      color: "bg-purple-100 text-purple-800"
-    };
+    try {
+      const startDateObj = new Date(formData.startDate);
+      const endDateObj = new Date(formData.endDate);
 
-    setTournaments([...tournaments, newTournament]);
-    setFormData({
-      name: "",
-      sport: "",
-      teams: 0,
-      startDate: "",
-      endDate: "",
-      status: "Inscripciones"
-    });
-    setIsDialogOpen(false);
+      const tournamentData = {
+        name: formData.name,
+        status: formData.status,
+        sport: formData.sport,
+        teams: formData.teams,
+        startDate: startDateObj,
+        endDate: endDateObj
+      };
+
+      // Guardar en Firebase
+      const docId = await createTournament(tournamentData);
+
+      // Actualizar estado local
+      const newTournament = {
+        id: docId,
+        ...tournamentData,
+        startDate: formatDate(startDateObj),
+        endDate: formatDate(endDateObj)
+      };
+
+      setTournaments([...tournaments, newTournament]);
+      setFormData({
+        name: "",
+        sport: "",
+        teams: 0,
+        startDate: "",
+        endDate: "",
+        status: "Inscripciones"
+      });
+      setIsDialogOpen(false);
+      alert("Torneo creado exitosamente");
+    } catch (error: any) {
+      console.error('Error detallado:', error);
+      alert(`Error al crear el torneo: ${error?.message || error}`);
+    }
   };
 
-  const handleEditTournament = (e: React.FormEvent) => {
+  const handleEditTournament = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name || !formData.sport || !formData.startDate || !formData.endDate) {
@@ -109,54 +194,86 @@ export function Tournaments() {
       return;
     }
 
-    setTournaments(tournaments.map(t => 
-      t.id === editingId 
-        ? {
-            ...t,
-            name: formData.name,
-            status: formData.status,
-            sport: formData.sport,
-            teams: formData.teams,
-            startDate: new Date(formData.startDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
-            endDate: new Date(formData.endDate).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })
-          }
-        : t
-    ));
-    
-    setFormData({
-      name: "",
-      sport: "",
-      teams: 0,
-      startDate: "",
-      endDate: "",
-      status: "Inscripciones"
-    });
-    setEditingId(null);
-    setIsEditDialogOpen(false);
+    try {
+      const startDateObj = new Date(formData.startDate);
+      const endDateObj = new Date(formData.endDate);
+
+      const tournamentData = {
+        name: formData.name,
+        status: formData.status,
+        sport: formData.sport,
+        teams: formData.teams,
+        startDate: startDateObj,
+        endDate: endDateObj
+      };
+
+      // Actualizar en Firebase
+      await updateTournament(editingId!, tournamentData);
+
+      // Actualizar estado local
+      setTournaments(tournaments.map(t => 
+        t.id === editingId 
+          ? {
+              ...t,
+              ...tournamentData,
+              startDate: formatDate(startDateObj),
+              endDate: formatDate(endDateObj)
+            }
+          : t
+      ));
+
+      setFormData({
+        name: "",
+        sport: "",
+        teams: 0,
+        startDate: "",
+        endDate: "",
+        status: "Inscripciones"
+      });
+      setEditingId(null);
+      setIsEditDialogOpen(false);
+      alert("Torneo actualizado exitosamente");
+    } catch (error: any) {
+      console.error('Error detallado:', error);
+      alert(`Error al actualizar el torneo: ${error?.message || error}`);
+    }
   };
 
-  const openEditDialog = (tournament: any) => {
+  const openEditDialog = (tournament: Tournament) => {
     setEditingId(tournament.id);
+    const startDate = formatDateForInput(tournament.startDate);
+    const endDate = formatDateForInput(tournament.endDate);
+    
     setFormData({
       name: tournament.name,
       sport: tournament.sport,
       teams: tournament.teams,
-      startDate: tournament.startDate,
-      endDate: tournament.endDate,
+      startDate: startDate,
+      endDate: endDate,
       status: tournament.status
     });
     setIsEditDialogOpen(true);
   };
 
-  const openDetailsDialog = (tournament: any) => {
+  const openDetailsDialog = (tournament: Tournament) => {
     setSelectedTournament(tournament);
     setIsDetailsDialogOpen(true);
   };
 
-  const handleDeleteTournament = (id: number) => {
+  const handleDeleteTournament = async (id: string) => {
     if (window.confirm("¿Estás seguro que deseas eliminar este torneo?")) {
-      setTournaments(tournaments.filter(t => t.id !== id));
-      setIsDetailsDialogOpen(false);
+      try {
+        // Eliminar de Firebase
+        await deleteTournament(id);
+        
+        // Actualizar estado local
+        setTournaments(tournaments.filter(t => t.id !== id));
+        setIsDetailsDialogOpen(false);
+        alert("Torneo eliminado exitosamente");
+      } catch (error: any) {
+        console.error('Error detallado:', error);
+        alert(`Error al eliminar el torneo: ${error?.message || error}`);
+      }
     }
   };
 
@@ -172,6 +289,14 @@ export function Tournaments() {
 
   return (
     <div className="space-y-6">
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-gray-500">Cargando torneos...</p>
+        </div>
+      )}
+      
+      {!loading && (
+      <>
       <div className="sm:flex sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Gestión de Torneos</h1>
         <div className="mt-4 sm:mt-0">
@@ -338,7 +463,7 @@ export function Tournaments() {
                 </span>
               </div>
               <h3 className="text-lg font-bold text-gray-900 mb-2">{t.name}</h3>
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wide mb-2 ${t.color}`}>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wide mb-2 bg-purple-100 text-purple-800">
                 {t.sport}
               </span>
               <div className="space-y-2 mt-2">
@@ -348,7 +473,7 @@ export function Tournaments() {
                 </div>
                 <div className="flex items-center text-sm text-gray-500">
                   <Calendar className="flex-shrink-0 mr-2 h-4 w-4 text-gray-400" />
-                  {t.startDate} - {t.endDate}
+                  {formatDate(t.startDate)} - {formatDate(t.endDate)}
                 </div>
               </div>
             </div>
@@ -413,11 +538,11 @@ export function Tournaments() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs font-medium uppercase text-gray-500">Fecha Inicio</Label>
-                  <p className="text-gray-900 font-medium">{selectedTournament.startDate}</p>
+                  <p className="text-gray-900 font-medium">{formatDate(selectedTournament.startDate)}</p>
                 </div>
                 <div>
                   <Label className="text-xs font-medium uppercase text-gray-500">Fecha Fin</Label>
-                  <p className="text-gray-900 font-medium">{selectedTournament.endDate}</p>
+                  <p className="text-gray-900 font-medium">{formatDate(selectedTournament.endDate)}</p>
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
@@ -539,6 +664,8 @@ export function Tournaments() {
           </form>
         </DialogContent>
       </Dialog>
+      </>
+      )}
     </div>
   );
 }
