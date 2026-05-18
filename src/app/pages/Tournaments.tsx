@@ -329,11 +329,10 @@ export function Tournaments() {
                       <SelectValue placeholder="Selecciona un deporte" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Fútbol">Fútbol</SelectItem>
+                      <SelectItem value="Microfútbol">Microfútbol</SelectItem>
                       <SelectItem value="Baloncesto">Baloncesto</SelectItem>
                       <SelectItem value="Voleibol">Voleibol</SelectItem>
                       <SelectItem value="Tenis de Mesa">Tenis de Mesa</SelectItem>
-                      <SelectItem value="Badminton">Badminton</SelectItem>
                       <SelectItem value="Atletismo">Atletismo</SelectItem>
                     </SelectContent>
                   </Select>
@@ -418,11 +417,10 @@ export function Tournaments() {
             onChange={(e) => setSportFilter(e.target.value)}
           >
             <option>Todos</option>
-            <option>Fútbol</option>
+            <option>Microfútbol</option>
             <option>Baloncesto</option>
             <option>Voleibol</option>
             <option>Tenis de Mesa</option>
-            <option>Badminton</option>
             <option>Atletismo</option>
           </select>
           <select 
@@ -598,11 +596,10 @@ export function Tournaments() {
                   <SelectValue placeholder="Selecciona un deporte" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Fútbol">Fútbol</SelectItem>
+                  <SelectItem value="Microf\u00fatbol">Microf\u00fatbol</SelectItem>
                   <SelectItem value="Baloncesto">Baloncesto</SelectItem>
                   <SelectItem value="Voleibol">Voleibol</SelectItem>
                   <SelectItem value="Tenis de Mesa">Tenis de Mesa</SelectItem>
-                  <SelectItem value="Badminton">Badminton</SelectItem>
                   <SelectItem value="Atletismo">Atletismo</SelectItem>
                 </SelectContent>
               </Select>

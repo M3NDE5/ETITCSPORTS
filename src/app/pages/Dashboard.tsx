@@ -83,7 +83,7 @@ export function Dashboard() {
           </h2>
           <div className="space-y-4">
             {[
-              { id: 1, time: "14:00", team1: "Ingeniería A", team2: "Sistemas B", sport: "Fútbol", color: "bg-green-100 text-green-800" },
+              { id: 1, time: "14:00", team1: "Ingeniería A", team2: "Sistemas B", sport: "Microfútbol", color: "bg-green-100 text-green-800" },
               { id: 2, time: "15:30", team1: "Mecatrónica", team2: "Industrial", sport: "Baloncesto", color: "bg-orange-100 text-orange-800" },
               { id: 3, time: "17:00", team1: "Eléctrica", team2: "Docentes", sport: "Voleibol", color: "bg-blue-100 text-blue-800" }
             ].map((match) => (

@@ -27,15 +27,15 @@ const navigation = [
 
 // Datos globales para búsqueda
 const tournaments = [
-  { id: 1, name: "Torneo Interfacultades 2026-I", sport: "Fútbol", type: "tournament", href: "/tournaments" },
+  { id: 1, name: "Torneo Interfacultades 2026-I", sport: "Microfútbol", type: "tournament", href: "/tournaments" },
   { id: 2, name: "Copa ETITC Relámpago", sport: "Baloncesto", type: "tournament", href: "/tournaments" },
   { id: 3, name: "Torneo de Novatos", sport: "Voleibol", type: "tournament", href: "/tournaments" },
   { id: 4, name: "Campeonato Abierto", sport: "Tenis de Mesa", type: "tournament", href: "/tournaments" },
 ];
 
 const teams = [
-  { id: 1, name: "Ingeniería A", sport: "Fútbol", type: "team", href: "/teams" },
-  { id: 2, name: "Sistemas B", sport: "Fútbol", type: "team", href: "/teams" },
+  { id: 1, name: "Ingeniería A", sport: "Microfútbol", type: "team", href: "/teams" },
+  { id: 2, name: "Sistemas B", sport: "Microfútbol", type: "team", href: "/teams" },
   { id: 3, name: "Mecatrónica", sport: "Baloncesto", type: "team", href: "/teams" },
   { id: 4, name: "Eléctrica", sport: "Voleibol", type: "team", href: "/teams" },
   { id: 5, name: "Industrial", sport: "Baloncesto", type: "team", href: "/teams" },
@@ -43,14 +43,14 @@ const teams = [
 ];
 
 const players = [
-  { id: 1, name: "Carlos Gómez", sport: "Fútbol", team: "Ingeniería A", type: "player", href: "/players" },
-  { id: 2, name: "Andrés Silva", sport: "Fútbol", team: "Sistemas B", type: "player", href: "/players" },
+  { id: 1, name: "Carlos Gómez", sport: "Microfútbol", team: "Ingeniería A", type: "player", href: "/players" },
+  { id: 2, name: "Andrés Silva", sport: "Microfútbol", team: "Sistemas B", type: "player", href: "/players" },
   { id: 3, name: "Luis Martínez", sport: "Baloncesto", team: "Mecatrónica", type: "player", href: "/players" },
   { id: 4, name: "Juan Pérez", sport: "Voleibol", team: "Eléctrica", type: "player", href: "/players" },
   { id: 5, name: "Pedro Sánchez", sport: "Baloncesto", team: "Industrial", type: "player", href: "/players" },
   { id: 6, name: "Prof. Ramírez", sport: "Tenis de Mesa", team: "Docentes TM", type: "player", href: "/players" },
-  { id: 7, name: "Felipe Osorio", sport: "Fútbol", team: "Ingeniería A", type: "player", href: "/players" },
-  { id: 8, name: "Miguel Rojas", sport: "Fútbol", team: "Sistemas B", type: "player", href: "/players" },
+  { id: 7, name: "Felipe Osorio", sport: "Microfútbol", team: "Ingeniería A", type: "player", href: "/players" },
+  { id: 8, name: "Miguel Rojas", sport: "Microfútbol", team: "Sistemas B", type: "player", href: "/players" },
 ];
 
 export function Layout() {

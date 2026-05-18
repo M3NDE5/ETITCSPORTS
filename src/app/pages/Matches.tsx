@@ -10,7 +10,7 @@ export function Matches() {
       team1: "Ingeniería A",
       team2: "Sistemas B",
       status: "Pendiente",
-      sport: "Fútbol",
+      sport: "Microfútbol",
       sportColor: "bg-green-100 text-green-800",
       score1: null,
       score2: null,
@@ -82,7 +82,7 @@ export function Matches() {
         <div className="hidden sm:flex space-x-2">
           <select className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm rounded-md">
             <option>Todos los deportes</option>
-            <option>Fútbol</option>
+            <option>Microf\u00fatbol</option>
             <option>Baloncesto</option>
             <option>Voleibol</option>
             <option>Tenis de Mesa</option>
