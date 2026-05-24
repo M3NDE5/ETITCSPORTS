@@ -1,12 +1,40 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Trophy, Mail, Lock, LogIn, ArrowRight } from "lucide-react";
+import { Mail, Lock, LogIn, ArrowRight } from "lucide-react";
+import { loginWithEmail } from "../firebase";
 
 export function Login() {
   const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/");
+    setError("");
+    setLoading(true);
+
+    try {
+      await loginWithEmail(email, password);
+      navigate("/");
+    } catch (err: any) {
+      let errorMessage = "Error al iniciar sesión";
+      
+      if (err.code === "auth/user-not-found") {
+        errorMessage = "Usuario no encontrado";
+      } else if (err.code === "auth/wrong-password") {
+        errorMessage = "Contraseña incorrecta";
+      } else if (err.code === "auth/invalid-email") {
+        errorMessage = "Email inválido";
+      } else if (err.code === "auth/user-disabled") {
+        errorMessage = "Usuario deshabilitado";
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -16,18 +44,18 @@ export function Login() {
         <div className="absolute inset-0 bg-gradient-to-br from-green-800/90 to-green-950/90 z-10" />
         <img
           className="absolute inset-0 w-full h-full object-cover"
-          src="https://images.unsplash.com/photo-1709133636649-7cb8959ddcb3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzcG9ydHMlMjBjb21wbGV4JTIwc3RhZGl1bSUyMG11bHRpc3BvcnR8ZW58MXx8fHwxNzczMTE2ODc1fDA&ixlib=rb-4.1.0&q=80&w=1080"
+          src="https://colombiaestudia.com/wp-content/uploads/2021/12/Campus_etitc1-1024x576.jpg"
           alt="Complejo deportivo"
         />
         
         <div className="relative z-20 flex flex-col justify-between p-12 w-full h-full text-white">
           <div className="flex items-center space-x-3">
-            <div className="p-3 bg-white/10 rounded-xl backdrop-blur-md border border-white/20">
-              <Trophy className="h-8 w-8 text-white" />
-            </div>
+            
+              <img src="/img/logo_etitc_sports3.png" alt="ETITC" className="h-45 w-45" />
+
             <div>
               <h1 className="text-xl font-bold tracking-tight">ETITC Sports</h1>
-              <p className="text-sm text-green-200">Plataforma Oficial</p>
+              <p className="text-xl text-green-200">Plataforma Oficial</p>
             </div>
           </div>
 
@@ -62,7 +90,7 @@ export function Login() {
         <div className="mx-auto w-full max-w-sm lg:w-96">
           <div className="lg:hidden flex flex-col items-center text-center mb-8">
             <div className="h-16 w-16 rounded-2xl bg-green-600 flex items-center justify-center shadow-lg shadow-green-600/20 mb-4">
-              <Trophy className="h-8 w-8 text-white" />
+              <img src="/img/logo_etitc_sports.png" alt="ETITC" className="h-8 w-8" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900">ETITC Sports</h2>
             <p className="text-sm text-gray-500 mt-1">Gestión de torneos institucionales</p>
@@ -92,6 +120,8 @@ export function Login() {
                     name="email"
                     type="email"
                     autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     required
                     className="block w-full pl-11 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 sm:text-sm transition-all"
                     placeholder="usuario@etitc.edu.co"
@@ -112,6 +142,8 @@ export function Login() {
                     name="password"
                     type="password"
                     autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
                     className="block w-full pl-11 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 sm:text-sm transition-all"
                     placeholder="••••••••"
@@ -139,14 +171,21 @@ export function Login() {
                 </div>
               </div>
 
+              {error && (
+                <div className="mt-4 p-3 rounded-xl bg-red-50 border border-red-200">
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm shadow-green-600/20 text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all items-center group"
+                  disabled={loading}
+                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm shadow-green-600/20 text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all items-center group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <LogIn className="w-5 h-5 mr-2" />
-                  Iniciar sesión
-                  <ArrowRight className="w-4 h-4 ml-2 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+                  {loading ? "Iniciando sesión..." : "Iniciar sesión"}
+                  {!loading && <ArrowRight className="w-4 h-4 ml-2 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />}
                 </button>
               </div>
             </form>

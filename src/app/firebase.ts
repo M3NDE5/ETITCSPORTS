@@ -11,6 +11,12 @@ import {
   orderBy,
   Firestore
 } from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword,
+  signOut,
+  Auth
+} from 'firebase/auth';
 
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
@@ -28,6 +34,9 @@ const app = initializeApp(firebaseConfig);
 
 // Obtener instancia de Firestore
 export const db: Firestore = getFirestore(app);
+
+// Obtener instancia de Auth
+export const auth: Auth = getAuth(app);
 
 interface TournamentData {
   name: string;
@@ -100,5 +109,190 @@ export const deleteTournament = async (tournamentId: string): Promise<void> => {
   } catch (error) {
     console.error('Error al eliminar torneo:', error);
     throw error;
+  }
+};
+
+// Función para login con email y contraseña
+export const loginWithEmail = async (email: string, password: string) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (error: any) {
+    console.error('Error al iniciar sesión:', error);
+    throw error;
+  }
+};
+
+// Función para logout
+export const logout = async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error('Error al cerrar sesión:', error);
+    throw error;
+  }
+};
+
+// Funciones para obtener datos del Dashboard
+export const getDashboardStats = async () => {
+  try {
+    // Obtener torneos activos
+    const tournamentsSnapshot = await getDocs(collection(db, 'torneos'));
+    const activeTournaments = tournamentsSnapshot.docs.filter((doc: any) => doc.data().status === 'Activo').length;
+
+    // Obtener equipos
+    const teamsSnapshot = await getDocs(collection(db, 'equipos'));
+    const totalTeams = teamsSnapshot.size;
+
+    // Obtener partidos próximos
+    const matchesSnapshot = await getDocs(collection(db, 'partidos'));
+    const nextMatches = matchesSnapshot.docs.filter((doc: any) => doc.data().status === 'programado').length;
+
+    return {
+      activeTournaments: activeTournaments || 0,
+      totalTeams: totalTeams || 0,
+      nextMatches: nextMatches || 0,
+    };
+  } catch (error) {
+    console.error('Error al obtener estadísticas:', error);
+    return {
+      activeTournaments: 0,
+      totalTeams: 0,
+      nextMatches: 0,
+    };
+  }
+};
+
+export const getStatsByDeporte = async (deporte: string) => {
+  try {
+    // Obtener torneos activos del deporte
+    const tournamentsSnapshot = await getDocs(collection(db, 'torneos'));
+    const activeTournaments = tournamentsSnapshot.docs.filter((doc: any) => 
+      doc.data().status === 'Activo' && doc.data().sport === deporte
+    ).length;
+
+    // Obtener equipos del deporte
+    const teamsSnapshot = await getDocs(collection(db, 'teams'));
+    const totalTeams = teamsSnapshot.docs.filter((doc: any) => 
+      doc.data().sport === deporte
+    ).length;
+
+    // Obtener próximos partidos del deporte
+    const matchesSnapshot = await getDocs(collection(db, 'partidos'));
+    const nextMatches = matchesSnapshot.docs.filter((doc: any) => 
+      doc.data().status === 'programado' && doc.data().sport === deporte
+    ).length;
+
+    return {
+      activeTournaments: activeTournaments || 0,
+      totalTeams: totalTeams || 0,
+      nextMatches: nextMatches || 0,
+    };
+  } catch (error) {
+    console.error('Error al obtener estadísticas por deporte:', error);
+    return {
+      activeTournaments: 0,
+      totalTeams: 0,
+      nextMatches: 0,
+    };
+  }
+};
+
+export const getUpcomingMatches = async (limit: number = 10) => {
+  try {
+    const q = query(collection(db, 'partidos'), orderBy('fecha', 'asc'));
+    const querySnapshot = await getDocs(q);
+    const matches: any[] = [];
+    
+    querySnapshot.docs.slice(0, limit).forEach((doc) => {
+      matches.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return matches;
+  } catch (error) {
+    console.error('Error al obtener partidos próximos:', error);
+    return [];
+  }
+};
+
+export const getUpcomingMatchesByDeporte = async (deporte: string, limit: number = 3) => {
+  try {
+    const q = query(
+      collection(db, 'partidos'), 
+      orderBy('fecha', 'asc')
+    );
+    const querySnapshot = await getDocs(q);
+    const matches: any[] = [];
+    
+    querySnapshot.docs.forEach((doc) => {
+      if (doc.data().sport === deporte && matches.length < limit) {
+        matches.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      }
+    });
+    
+    return matches;
+  } catch (error) {
+    console.error('Error al obtener partidos próximos por deporte:', error);
+    return [];
+  }
+};
+
+export const getStandings = async (tournamentId?: string) => {
+  try {
+    let q;
+    if (tournamentId) {
+      q = query(collection(db, 'posiciones'), 
+        orderBy('puntos', 'desc')
+      );
+    } else {
+      q = query(collection(db, 'posiciones'), orderBy('puntos', 'desc'));
+    }
+    
+    const querySnapshot = await getDocs(q);
+    const standings: any[] = [];
+    
+    querySnapshot.docs.slice(0, 5).forEach((doc) => {
+      standings.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return standings;
+  } catch (error) {
+    console.error('Error al obtener posiciones:', error);
+    return [];
+  }
+};
+
+export const getStandingsByDeporte = async (deporte: string) => {
+  try {
+    const q = query(
+      collection(db, 'posiciones'),
+      orderBy('puntos', 'desc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const standings: any[] = [];
+    
+    querySnapshot.docs.forEach((doc) => {
+      if (doc.data().sport === deporte && standings.length < 5) {
+        standings.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      }
+    });
+    
+    return standings;
+  } catch (error) {
+    console.error('Error al obtener posiciones por deporte:', error);
+    return [];
   }
 };

@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { logout } from "../firebase";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -143,13 +144,20 @@ export function Layout() {
           })}
 
           <div className="pt-8 mt-8 border-t border-gray-200">
-            <Link
-              to="/login"
-              className="flex items-center px-3 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 hover:text-gray-900 transition-colors"
+            <button
+              onClick={async () => {
+                try {
+                  await logout();
+                  navigate("/login");
+                } catch (error) {
+                  console.error("Error al cerrar sesión:", error);
+                }
+              }}
+              className="w-full flex items-center px-3 py-2.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 hover:text-gray-900 transition-colors"
             >
               <LogOut className="flex-shrink-0 w-5 h-5 mr-3 text-gray-400" />
               Cerrar Sesión
-            </Link>
+            </button>
           </div>
         </nav>
       </div>
@@ -198,7 +206,6 @@ export function Layout() {
                       <p className="text-xs text-gray-500">
                         {result.type === "tournament" && `${result.sport}`}
                         {result.type === "team" && `${result.sport}`}
-                        {result.type === "player" && `${result.sport} • ${result.team}`}
                         {' | '}{getResultLabel(result.type)}
                       </p>
                     </div>
