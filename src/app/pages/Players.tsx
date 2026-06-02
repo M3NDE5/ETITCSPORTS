@@ -2,7 +2,7 @@
 
 import { Search, User, Filter } from "lucide-react";
 import { useState, useEffect } from "react";
-import { db } from "../../../firebase";
+import { db } from "../firebase";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
 
 interface Player {

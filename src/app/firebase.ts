@@ -45,6 +45,8 @@ interface TournamentData {
   startDate: Date;
   endDate: Date;
   status: string;
+  modality: string;
+  groups?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -243,24 +245,19 @@ export const getUpcomingMatchesByDeporte = async (deporte: string, limit: number
   }
 };
 
-export const getStandings = async (tournamentId?: string) => {
+export const getStandings = async (tournamentId?: string, group?: string) => {
   try {
-    let q;
-    if (tournamentId) {
-      q = query(collection(db, 'posiciones'), 
-        orderBy('puntos', 'desc')
-      );
-    } else {
-      q = query(collection(db, 'posiciones'), orderBy('puntos', 'desc'));
-    }
-    
+    const q = query(collection(db, 'posiciones'), orderBy('puntos', 'desc'));
     const querySnapshot = await getDocs(q);
     const standings: any[] = [];
     
-    querySnapshot.docs.slice(0, 5).forEach((doc) => {
+    querySnapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      if (tournamentId && data.tournamentId !== tournamentId) return;
+      if (group && data.group !== group) return;
       standings.push({
         id: doc.id,
-        ...doc.data()
+        ...data
       });
     });
     

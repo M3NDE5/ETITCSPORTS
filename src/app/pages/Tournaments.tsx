@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { createTournament, updateTournament, deleteTournament, getTournaments } from "../../../firebase";
+import { createTournament, updateTournament, deleteTournament, getTournaments } from "../firebase";
 interface Tournament {
   id: string;
   name: string;
@@ -14,6 +14,8 @@ interface Tournament {
   teams: number;
   startDate: string | Date;
   endDate: string | Date;
+  modality?: string;
+  groups?: number;
 }
 
 interface FormData {
@@ -23,6 +25,8 @@ interface FormData {
   startDate: string;
   endDate: string;
   status: string;
+  modality: string;
+  groups: number;
 }
 export function Tournaments() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -45,7 +49,9 @@ export function Tournaments() {
     teams: 0,
     startDate: "",
     endDate: "",
-    status: "Inscripciones"
+    status: "Inscripciones",
+    modality: "Grupos + Eliminatoria",
+    groups: 1
   });
 
   // Cargar torneos desde Firebase
@@ -155,7 +161,9 @@ export function Tournaments() {
         sport: formData.sport,
         teams: formData.teams,
         startDate: startDateObj,
-        endDate: endDateObj
+        endDate: endDateObj,
+        modality: formData.modality,
+        groups: formData.modality === "Eliminatoria directa" ? 0 : formData.groups
       };
 
       // Guardar en Firebase
@@ -176,7 +184,9 @@ export function Tournaments() {
         teams: 0,
         startDate: "",
         endDate: "",
-        status: "Inscripciones"
+        status: "Inscripciones",
+        modality: "Grupos + Eliminatoria",
+        groups: 1
       });
       setIsDialogOpen(false);
       alert("Torneo creado exitosamente");
@@ -204,7 +214,9 @@ export function Tournaments() {
         sport: formData.sport,
         teams: formData.teams,
         startDate: startDateObj,
-        endDate: endDateObj
+        endDate: endDateObj,
+        modality: formData.modality,
+        groups: formData.modality === "Eliminatoria directa" ? 0 : formData.groups
       };
 
       // Actualizar en Firebase
@@ -228,7 +240,9 @@ export function Tournaments() {
         teams: 0,
         startDate: "",
         endDate: "",
-        status: "Inscripciones"
+        status: "Inscripciones",
+        modality: "Grupos + Eliminatoria",
+        groups: 1
       });
       setEditingId(null);
       setIsEditDialogOpen(false);
@@ -250,7 +264,9 @@ export function Tournaments() {
       teams: tournament.teams,
       startDate: startDate,
       endDate: endDate,
-      status: tournament.status
+      status: tournament.status,
+      modality: tournament.modality || "Grupos + Eliminatoria",
+      groups: tournament.groups ?? 1
     });
     setIsEditDialogOpen(true);
   };
@@ -349,6 +365,33 @@ export function Tournaments() {
                     onChange={(e) => setFormData({...formData, teams: e.target.value === "" ? 0 : parseInt(e.target.value) || 0})}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="modality">Modalidad</Label>
+                  <Select value={formData.modality} onValueChange={(value) => setFormData(prev => ({...prev, modality: value, groups: value === "Eliminatoria directa" ? 0 : prev.groups}))}>
+                    <SelectTrigger id="modality">
+                      <SelectValue placeholder="Selecciona modalidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Grupos + Eliminatoria">Fase de Grupos + Eliminatoria</SelectItem>
+                      <SelectItem value="Eliminatoria directa">Eliminatoria directa</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formData.modality !== "Eliminatoria directa" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="groups">Cantidad de Grupos</Label>
+                    <Input
+                      id="groups"
+                      type="number"
+                      placeholder="1"
+                      min="1"
+                      value={formData.groups}
+                      onChange={(e) => setFormData({...formData, groups: e.target.value === "" ? 1 : parseInt(e.target.value) || 1})}
+                    />
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -469,6 +512,13 @@ export function Tournaments() {
                   <Users className="flex-shrink-0 mr-2 h-4 w-4 text-gray-400" />
                   {t.teams} Equipos inscritos
                 </div>
+                {t.modality && (
+                  <div className="flex items-center text-sm text-gray-500">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-medium">
+                      {t.modality}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center text-sm text-gray-500">
                   <Calendar className="flex-shrink-0 mr-2 h-4 w-4 text-gray-400" />
                   {formatDate(t.startDate)} - {formatDate(t.endDate)}
@@ -532,6 +582,16 @@ export function Tournaments() {
               <div>
                 <Label className="text-xs font-medium uppercase text-gray-500">Equipos Inscritos</Label>
                 <p className="text-gray-900 font-medium">{selectedTournament.teams}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs font-medium uppercase text-gray-500">Modalidad</Label>
+                  <p className="text-gray-900 font-medium">{selectedTournament.modality || 'No especificada'}</p>
+                </div>
+                <div>
+                  <Label className="text-xs font-medium uppercase text-gray-500">Grupos</Label>
+                  <p className="text-gray-900 font-medium">{selectedTournament.groups || 0}</p>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -616,6 +676,33 @@ export function Tournaments() {
                 onChange={(e) => setFormData({...formData, teams: e.target.value === "" ? 0 : parseInt(e.target.value) || 0})}
               />
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-modality">Modalidad</Label>
+              <Select value={formData.modality} onValueChange={(value) => setFormData(prev => ({...prev, modality: value, groups: value === "Eliminatoria directa" ? 0 : prev.groups}))}>
+                <SelectTrigger id="edit-modality">
+                  <SelectValue placeholder="Selecciona modalidad" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Grupos + Eliminatoria">Fase de Grupos + Eliminatoria</SelectItem>
+                  <SelectItem value="Eliminatoria directa">Eliminatoria directa</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {formData.modality !== "Eliminatoria directa" && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-groups">Cantidad de Grupos</Label>
+                <Input
+                  id="edit-groups"
+                  type="number"
+                  placeholder="1"
+                  min="1"
+                  value={formData.groups}
+                  onChange={(e) => setFormData({...formData, groups: e.target.value === "" ? 1 : parseInt(e.target.value) || 1})}
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

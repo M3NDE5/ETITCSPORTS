@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Search, Shield, Users, X, Trash2, Eye } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "../components/ui/dialog";
-import { db, getTournaments } from "../../../firebase";
+import { db, getTournaments } from "../firebase";
 import { collection, addDoc, getDocs, query, orderBy, deleteDoc, doc, updateDoc } from "firebase/firestore";
 
 interface Player {
