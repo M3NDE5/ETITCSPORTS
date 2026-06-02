@@ -1,6 +1,6 @@
 import { Trophy, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { getStandings, getTournaments } from "../firebase";
+import { getStandings, getTournaments, subscribeStandingsByTournament } from "../firebase";
 
 interface Tournament {
   id: string;
@@ -82,37 +82,32 @@ export function Standings() {
   }, []);
 
   useEffect(() => {
-    const loadStandings = async () => {
-      if (!selectedTournamentId) return;
-      setLoading(true);
-      try {
-        const group = selectedTournament?.modality?.includes("Grupos") ? selectedGroup : undefined;
-        const data = await getStandings(selectedTournamentId, group);
-        if (data.length > 0) {
-          setStandings(data.map((row: any, index: number) => ({
-            id: row.id,
-            team: row.team || `Equipo ${index + 1}`,
-            p: row.puntos ?? row.p ?? 0,
-            w: row.ganados ?? row.w ?? 0,
-            d: row.empatados ?? row.d ?? 0,
-            l: row.perdidos ?? row.l ?? 0,
-            f: row.gf ?? row.f ?? 0,
-            a: row.gc ?? row.a ?? 0,
-            gd: row.dg ?? row.gd ?? "+0",
-            trend: row.trend || "same",
-          })));
-        } else {
-          setStandings(defaultStandings);
-        }
-      } catch (error) {
-        console.error(error);
+    if (!selectedTournamentId) return;
+    setLoading(true);
+    const group = selectedTournament?.modality?.includes("Grupos") ? selectedGroup : undefined;
+    const unsub = subscribeStandingsByTournament(selectedTournamentId, group, (data) => {
+      if (data && data.length > 0) {
+        setStandings(data.map((row: any, index: number) => ({
+          id: row.id,
+          team: row.team || `Equipo ${index + 1}`,
+          p: row.puntos ?? row.p ?? 0,
+          w: row.ganados ?? row.w ?? 0,
+          d: row.empatados ?? row.d ?? 0,
+          l: row.perdidos ?? row.l ?? 0,
+          f: row.gf ?? row.f ?? 0,
+          a: row.gc ?? row.a ?? 0,
+          gd: row.dg ?? row.gd ?? "+0",
+          trend: row.trend || "same",
+        })));
+      } else {
         setStandings(defaultStandings);
-      } finally {
-        setLoading(false);
       }
-    };
+      setLoading(false);
+    });
 
-    loadStandings();
+    return () => {
+      try { unsub(); } catch (e) { /* noop */ }
+    };
   }, [selectedTournamentId, selectedGroup, selectedTournament]);
 
   return (

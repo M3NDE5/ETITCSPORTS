@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { GitMerge } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { getTournaments } from "../firebase";
+import { getMatchesByTournament, subscribeMatchesByTournament, getTournaments, isMatchFinalized } from "../firebase";
 
 interface Tournament {
   id: string;
@@ -14,6 +14,7 @@ interface Tournament {
 
 export function Brackets() {
   const [allTournaments, setAllTournaments] = useState<Tournament[]>([]);
+  const [matches, setMatches] = useState<any[]>([]);
   const [selectedSport, setSelectedSport] = useState<string>("");
   const [selectedTournamentId, setSelectedTournamentId] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,44 @@ export function Brackets() {
     fetchTournaments();
   }, []);
 
+  useEffect(() => {
+    const fetchMatches = async () => {
+      if (!selectedTournamentId) {
+        setMatches([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const tournamentMatches = await getMatchesByTournament(selectedTournamentId);
+        setMatches(tournamentMatches);
+      } catch (error) {
+        console.error("Error cargando partidos del torneo:", error);
+        setMatches([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMatches();
+  }, [selectedTournamentId]);
+
+  // Suscripción en tiempo real a cambios en partidos del torneo
+  useEffect(() => {
+    if (!selectedTournamentId) return;
+    const unsub = subscribeMatchesByTournament(selectedTournamentId, (updated) => {
+      setMatches(updated);
+    });
+    return () => {
+      try { unsub(); } catch (e) { /* noop */ }
+    };
+  }, [selectedTournamentId]);
+
+  useEffect(() => {
+    if (selectedSport) return;
+    setSelectedTournamentId("");
+  }, [selectedSport]);
+
   // Calcular deportes únicos
   const sports = Array.from(new Set(allTournaments.map(t => t.sport))).sort();
 
@@ -45,6 +84,28 @@ export function Brackets() {
   const selectedTournament = selectedTournamentId 
     ? allTournaments.find(t => t.id === selectedTournamentId) 
     : null;
+
+  const compareMatchDate = (match: any) => {
+    const date = match.date || "";
+    const time = match.time || "00:00";
+    return new Date(`${date}T${time}`);
+  };
+
+  const selectedTournamentMatches = selectedTournament
+    ? matches.filter((match) => match.tournamentId === selectedTournament.id)
+    : [];
+
+  const orderedMatches = [...selectedTournamentMatches].sort(
+    (a, b) => compareMatchDate(a).getTime() - compareMatchDate(b).getTime()
+  );
+
+  const getPhaseMatchRange = (phaseIndex: number) => {
+    const previousMatches = phases
+      .slice(0, phaseIndex)
+      .reduce((sum, phase) => sum + Math.ceil(phase.actualTeams / 2), 0);
+    const currentMatches = Math.ceil(phases[phaseIndex].actualTeams / 2);
+    return { start: previousMatches, end: previousMatches + currentMatches };
+  };
 
   // Calcular fases dinámicamente basado en número de equipos
   const calculatePhases = (teamCount: number) => {
@@ -143,52 +204,49 @@ export function Brackets() {
             </div>
             
             {/* Dynamic Bracket representation */}
-            <div className="flex h-full py-8 px-4 justify-between min-w-max w-full">
+            <div className="flex h-full py-8 px-4 items-start justify-between min-w-max w-full gap-6 pr-8">
               {phases.map((phase, phaseIndex) => (
                 <div key={phaseIndex}>
                   {/* Phase Column */}
-                  <div className={`flex flex-col justify-around w-64 ${phaseIndex > 0 ? 'space-y-12' : 'space-y-4'}`}>
+                  <div className={`flex-shrink-0 flex flex-col overflow-hidden justify-around w-64 ${phaseIndex > 0 ? 'space-y-12' : 'space-y-4'}`}>
                     <h3 className="text-center font-bold text-gray-500 mb-4">{phase.name}</h3>
                     
                     {phase.name === "Gran Final" ? (
                       <div className="flex flex-col justify-center">
-                        <div className="relative">
-                          <div className="bg-gradient-to-br from-yellow-50 to-white border-2 border-yellow-400 rounded-xl p-3 flex flex-col shadow-lg">
-                            <div className="flex justify-center items-center py-3 px-3 border-b border-yellow-100 text-gray-400 italic">
-                              <span>Ganador Semifinal 1</span>
+                        {orderedMatches.length > 0 ? (
+                          orderedMatches.slice(getPhaseMatchRange(phaseIndex).start, getPhaseMatchRange(phaseIndex).end).map((match, matchIndex) => (
+                            <div key={match.id ?? matchIndex} className="bg-gradient-to-br from-yellow-50 to-white border-2 border-yellow-400 rounded-xl p-3 mb-4 shadow-lg">
+                              <p className="text-sm font-semibold text-gray-700 truncate max-w-[12rem]">{match.team1 || `Equipo ${matchIndex * 2 + 1}`}</p>
+                              <p className="text-2xl font-black text-gray-900 text-center">{isMatchFinalized(match) ? `${match.score1} - ${match.score2}` : 'VS'}</p>
+                              <p className="text-sm font-semibold text-gray-700 text-right truncate max-w-[12rem]">{match.team2 || `Equipo ${matchIndex * 2 + 2}`}</p>
                             </div>
-                            <div className="flex justify-center items-center py-3 px-3 text-gray-400 italic">
-                              <span>Ganador Semifinal 2</span>
-                            </div>
+                          ))
+                        ) : (
+                          <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-3 text-center text-gray-500">
+                            No hay partidos programados para la final
                           </div>
-                          {phaseIndex < phases.length - 1 && (
-                            <div className="absolute left-[-2rem] top-1/2 w-8 border-b-2 border-gray-300"></div>
-                          )}
-                        </div>
-                        
-                        <div className="mt-8 flex justify-center">
-                          <div className="bg-yellow-100 p-4 rounded-full border-4 border-yellow-400 shadow-inner">
-                            <GitMerge className="w-12 h-12 text-yellow-500" />
-                          </div>
-                        </div>
-                        <p className="text-center mt-4 text-sm font-medium text-gray-500">Campeón por definir</p>
+                        )}
                       </div>
                     ) : (
-                      Array.from({ length: Math.ceil(phase.actualTeams / 2) }).map((_, matchIndex) => (
-                        <div key={matchIndex} className="relative">
-                          <div className={`bg-gray-50 border border-gray-200 rounded-lg p-2 flex flex-col shadow-sm ${phaseIndex === phases.length - 1 ? 'border-2 border-green-500' : ''}`}>
-                            <div className="flex justify-between items-center py-2 px-3 border-b border-gray-200 font-bold text-gray-900">
-                              <span>Equipo {matchIndex * 2 + 1}</span>
-                              <span>-</span>
+                      Array.from({ length: Math.ceil(phase.actualTeams / 2) }).map((_, matchIndex) => {
+                        const phaseRange = getPhaseMatchRange(phaseIndex);
+                        const match = orderedMatches[phaseRange.start + matchIndex];
+                        return (
+                          <div key={match?.id ?? matchIndex} className="relative">
+                            <div className={`bg-gray-50 border border-gray-200 rounded-lg p-2 flex flex-col shadow-sm ${phaseIndex === phases.length - 1 ? 'border-2 border-green-500' : ''}`}>
+                              <div className="flex justify-between items-center py-2 px-3 border-b border-gray-200 font-bold text-gray-900">
+                                <span className="truncate max-w-[10rem]">{match?.team1 ?? `Equipo ${matchIndex * 2 + 1}`}</span>
+                                <span>{match ? (isMatchFinalized(match) ? `${match.score1} - ${match.score2}` : 'VS') : '-'}</span>
+                              </div>
+                              <div className="flex justify-between items-center py-2 px-3 text-gray-500">
+                                <span className="truncate max-w-[10rem]">{match?.team2 ?? `Equipo ${matchIndex * 2 + 2}`}</span>
+                                <span className="text-xs">{match ? `${match.date} ${match.time}` : ''}</span>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center py-2 px-3 text-gray-500">
-                              <span>Equipo {matchIndex * 2 + 2}</span>
-                              <span>-</span>
-                            </div>
+                            <div className="absolute right-4 top-1/2 w-4 border-b-2 border-green-500"></div>
                           </div>
-                          <div className="absolute right-[-1rem] top-1/2 w-4 border-b-2 border-green-500"></div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
 

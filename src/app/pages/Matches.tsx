@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Search, Calendar as CalendarIcon, MapPin, CheckCircle2, X, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "../components/ui/dialog";
-import { db } from "../firebase";
+import { db, isMatchFinalized, normalizeStatus } from "../firebase";
 import {
   collection,
   addDoc,
@@ -232,7 +232,7 @@ export function Matches() {
       m.tournamentName.toLowerCase().includes(search) ||
       m.location.toLowerCase().includes(search);
     const matchesSport = filterSport === "Todos" || m.sport === filterSport;
-    const matchesStatus = filterStatus === "Todos" || m.status === filterStatus;
+    const matchesStatus = filterStatus === "Todos" || normalizeStatus(m.status) === normalizeStatus(filterStatus);
     return matchesSearch && matchesSport && matchesStatus;
   });
 
@@ -319,7 +319,7 @@ export function Matches() {
                     {m.sport}
                   </span>
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    m.status === "Finalizado" ? "bg-gray-100 text-gray-800"
+                    isMatchFinalized(m) ? "bg-gray-100 text-gray-800"
                     : "bg-green-100 text-green-800"
                   }`}>
                     {m.status}
@@ -344,7 +344,7 @@ export function Matches() {
                   </div>
 
                   <div className="flex flex-col items-center justify-center flex-shrink-0 px-8">
-                    {m.status === "Finalizado" ? (
+                    {isMatchFinalized(m) ? (
                       <div className="flex items-center space-x-4">
                         <span className="text-4xl font-black text-gray-900">{m.score1}</span>
                         <span className="text-gray-400 font-medium">-</span>
@@ -353,7 +353,7 @@ export function Matches() {
                     ) : (
                       <span className="text-2xl font-bold text-gray-300">VS</span>
                     )}
-                    {m.status === "Pendiente" && (
+                    {!isMatchFinalized(m) && (
                       <button
                         onClick={() => { setResultMatch(m); setScore1(""); setScore2(""); }}
                         className="mt-4 inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
@@ -361,7 +361,7 @@ export function Matches() {
                         Registrar Resultado
                       </button>
                     )}
-                    {m.status === "Finalizado" && (
+                    {isMatchFinalized(m) && (
                       <div className="mt-3 flex items-center text-sm text-green-600 font-medium">
                         <CheckCircle2 className="w-4 h-4 mr-1" />
                         Resultado Oficial
