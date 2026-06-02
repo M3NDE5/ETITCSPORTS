@@ -1,7 +1,21 @@
 import { useState, useEffect } from "react";
-import { GitMerge } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { getMatchesByTournament, subscribeMatchesByTournament, getTournaments, isMatchFinalized } from "../firebase";
+import { db, getTournaments, isMatchFinalized } from "../firebase";
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
+} from "firebase/firestore";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface Tournament {
   id: string;
@@ -12,154 +26,338 @@ interface Tournament {
   groups?: number;
 }
 
+interface BracketMatch {
+  id: string;
+  tournamentId: string;
+  team1: string;
+  team1Id: string;
+  team2: string;
+  team2Id: string;
+  score1: number | null;
+  score2: number | null;
+  status: string;
+  date: string;
+  time: string;
+  location: string;
+  phase: string; // "R32" | "R16" | "QF" | "SF" | "F"
+  matchNumber: number; // posición dentro de la fase (1-based)
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Calcula las fases basado en el número de equipos
+const buildPhases = (teamCount: number): string[] => {
+  let n = 1;
+  while (n < teamCount) n *= 2;
+
+  const phaseMap: Record<number, string[]> = {
+    2:  ["F"],
+    4:  ["SF", "F"],
+    8:  ["QF", "SF", "F"],
+    16: ["R16", "QF", "SF", "F"],
+    32: ["R32", "R16", "QF", "SF", "F"],
+  };
+  return phaseMap[n] ?? ["F"];
+};
+
+const PHASE_LABELS: Record<string, string> = {
+  R32: "32avos de Final",
+  R16: "16avos de Final",
+  QF:  "Cuartos de Final",
+  SF:  "Semifinales",
+  F:   "Gran Final",
+};
+
+const matchesPerPhase = (phase: string, firstPhaseTeams: number, phases: string[]): number => {
+  const idx = phases.indexOf(phase);
+  if (idx === 0) return Math.ceil(firstPhaseTeams / 2);
+  // cada ronda siguiente tiene la mitad
+  const firstCount = Math.ceil(firstPhaseTeams / 2);
+  return Math.max(1, Math.ceil(firstCount / Math.pow(2, idx)));
+};
+
+const getWinner = (match: BracketMatch): string | null => {
+  if (!isMatchFinalized(match)) return null;
+  if ((match.score1 ?? 0) > (match.score2 ?? 0)) return match.team1;
+  if ((match.score2 ?? 0) > (match.score1 ?? 0)) return match.team2;
+  return null; // empate
+};
+
+// ─── Componente de tarjeta de partido ─────────────────────────────────────────
+
+function MatchCard({
+  match,
+  isFinal,
+}: {
+  match: BracketMatch | null;
+  isFinal: boolean;
+}) {
+  const finalized = match ? isMatchFinalized(match) : false;
+  const winner = match ? getWinner(match) : null;
+
+  const teamClass = (team: string) =>
+    finalized && winner
+      ? winner === team
+        ? "font-black text-green-700"
+        : "font-medium text-gray-400 line-through"
+      : "font-semibold text-gray-800";
+
+  if (isFinal) {
+    return (
+      <div
+        className={`rounded-xl border-2 shadow-lg p-4 w-60 ${
+          finalized
+            ? "border-yellow-400 bg-gradient-to-br from-yellow-50 to-white"
+            : "border-yellow-300 bg-yellow-50/60"
+        }`}
+      >
+        <p className="text-xs text-yellow-600 font-bold uppercase tracking-wider mb-3 text-center">
+          🏆 Gran Final
+        </p>
+
+        {/* Equipo 1 */}
+        <div
+          className={`flex items-center justify-between px-3 py-2 rounded-lg mb-1 ${
+            finalized && winner === match?.team1
+              ? "bg-green-100"
+              : "bg-white/70"
+          }`}
+        >
+          <span className={`text-sm truncate max-w-[9rem] ${teamClass(match?.team1 ?? "")}`}>
+            {match?.team1 || "Por definir"}
+          </span>
+          {finalized && (
+            <span className="text-lg font-black text-gray-900 ml-2">{match?.score1}</span>
+          )}
+        </div>
+
+        <div className="text-center text-xs text-gray-400 font-bold my-1">
+          {finalized ? "—" : "VS"}
+        </div>
+
+        {/* Equipo 2 */}
+        <div
+          className={`flex items-center justify-between px-3 py-2 rounded-lg mt-1 ${
+            finalized && winner === match?.team2
+              ? "bg-green-100"
+              : "bg-white/70"
+          }`}
+        >
+          <span className={`text-sm truncate max-w-[9rem] ${teamClass(match?.team2 ?? "")}`}>
+            {match?.team2 || "Por definir"}
+          </span>
+          {finalized && (
+            <span className="text-lg font-black text-gray-900 ml-2">{match?.score2}</span>
+          )}
+        </div>
+
+        {match && (
+          <p className="text-xs text-gray-400 text-center mt-3">
+            {match.date} {match.time && `· ${match.time}`}
+          </p>
+        )}
+
+        {finalized && winner && (
+          <div className="mt-3 text-center">
+            <span className="inline-flex items-center gap-1 bg-green-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+              🥇 {winner}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`rounded-lg border shadow-sm w-56 overflow-hidden ${
+        finalized ? "border-gray-300 bg-white" : "border-gray-200 bg-gray-50"
+      }`}
+    >
+      {/* Equipo 1 */}
+      <div
+        className={`flex items-center justify-between px-3 py-2 border-b border-gray-200 ${
+          finalized && winner === match?.team1 ? "bg-green-50" : ""
+        }`}
+      >
+        <span className={`text-sm truncate max-w-[9rem] ${teamClass(match?.team1 ?? "")}`}>
+          {match?.team1 || <span className="text-gray-400 italic text-xs">Por definir</span>}
+        </span>
+        {finalized && (
+          <span className="text-base font-black text-gray-900 ml-2">{match?.score1}</span>
+        )}
+      </div>
+
+      {/* Equipo 2 */}
+      <div
+        className={`flex items-center justify-between px-3 py-2 ${
+          finalized && winner === match?.team2 ? "bg-green-50" : ""
+        }`}
+      >
+        <span className={`text-sm truncate max-w-[9rem] ${teamClass(match?.team2 ?? "")}`}>
+          {match?.team2 || <span className="text-gray-400 italic text-xs">Por definir</span>}
+        </span>
+        {finalized && (
+          <span className="text-base font-black text-gray-900 ml-2">{match?.score2}</span>
+        )}
+      </div>
+
+      {/* Footer */}
+      {match && (
+        <div className="px-3 py-1.5 bg-gray-100 border-t border-gray-200">
+          <p className="text-xs text-gray-400 truncate">
+            {match.date}
+            {match.time && ` · ${match.time}`}
+            {match.location && ` · ${match.location}`}
+          </p>
+        </div>
+      )}
+      {!match && (
+        <div className="px-3 py-1.5 bg-gray-100 border-t border-gray-200">
+          <p className="text-xs text-gray-400 italic">Sin programar</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Componente principal ──────────────────────────────────────────────────────
+
 export function Brackets() {
   const [allTournaments, setAllTournaments] = useState<Tournament[]>([]);
-  const [matches, setMatches] = useState<any[]>([]);
+  const [matches, setMatches] = useState<BracketMatch[]>([]);
   const [selectedSport, setSelectedSport] = useState<string>("");
   const [selectedTournamentId, setSelectedTournamentId] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  // Cargar todos los torneos
+  // Cargar torneos
   useEffect(() => {
-    const fetchTournaments = async () => {
+    const fetch = async () => {
       try {
-        const tournaments = await getTournaments();
-        setAllTournaments(tournaments);
-        setLoading(false);
-      } catch (error) {
-        console.error("Error cargando torneos:", error);
-        setLoading(false);
-      }
-    };
-    fetchTournaments();
-  }, []);
-
-  useEffect(() => {
-    const fetchMatches = async () => {
-      if (!selectedTournamentId) {
-        setMatches([]);
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const tournamentMatches = await getMatchesByTournament(selectedTournamentId);
-        setMatches(tournamentMatches);
-      } catch (error) {
-        console.error("Error cargando partidos del torneo:", error);
-        setMatches([]);
+        const data = await getTournaments();
+        setAllTournaments(data);
+      } catch (e) {
+        console.error(e);
       } finally {
         setLoading(false);
       }
     };
+    fetch();
+  }, []);
 
-    fetchMatches();
+  // Suscripción en tiempo real a partidos del torneo
+  useEffect(() => {
+    if (!selectedTournamentId) {
+      setMatches([]);
+      return;
+    }
+    setLoading(true);
+
+    const q = query(
+      collection(db, "matches"),
+      where("tournamentId", "==", selectedTournamentId),
+      orderBy("createdAt", "asc")
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const data: BracketMatch[] = snap.docs.map((d, i) => ({
+          id: d.id,
+          tournamentId: d.data().tournamentId,
+          team1: d.data().team1 ?? "",
+          team1Id: d.data().team1Id ?? "",
+          team2: d.data().team2 ?? "",
+          team2Id: d.data().team2Id ?? "",
+          score1: d.data().score1 ?? null,
+          score2: d.data().score2 ?? null,
+          status: d.data().status ?? "Pendiente",
+          date: d.data().date ?? "",
+          time: d.data().time ?? "",
+          location: d.data().location ?? "",
+          // Usa el campo 'phase' si existe, si no, fallback a "F"
+          phase: d.data().phase ?? "F",
+          matchNumber: d.data().matchNumber ?? i + 1,
+        }));
+        setMatches(data);
+        setLoading(false);
+      },
+      (err) => {
+        console.error(err);
+        setLoading(false);
+      }
+    );
+
+    return () => { try { unsub(); } catch (_) {} };
   }, [selectedTournamentId]);
 
-  // Suscripción en tiempo real a cambios en partidos del torneo
+  // Limpiar torneo al cambiar deporte
   useEffect(() => {
-    if (!selectedTournamentId) return;
-    const unsub = subscribeMatchesByTournament(selectedTournamentId, (updated) => {
-      setMatches(updated);
-    });
-    return () => {
-      try { unsub(); } catch (e) { /* noop */ }
-    };
-  }, [selectedTournamentId]);
-
-  useEffect(() => {
-    if (selectedSport) return;
     setSelectedTournamentId("");
+    setMatches([]);
   }, [selectedSport]);
 
-  // Calcular deportes únicos
-  const sports = Array.from(new Set(allTournaments.map(t => t.sport))).sort();
-
-  // Filtrar torneos por deporte seleccionado
-  const filteredTournaments = selectedSport 
-    ? allTournaments.filter(t => t.sport === selectedSport)
+  const sports = Array.from(new Set(allTournaments.map((t) => t.sport))).sort();
+  const filteredTournaments = selectedSport
+    ? allTournaments.filter((t) => t.sport === selectedSport)
     : [];
+  const selectedTournament = allTournaments.find((t) => t.id === selectedTournamentId) ?? null;
 
-  // Obtener torneo seleccionado
-  const selectedTournament = selectedTournamentId 
-    ? allTournaments.find(t => t.id === selectedTournamentId) 
-    : null;
+  // Construir fases y distribuir partidos
+  const phases = selectedTournament ? buildPhases(selectedTournament.teams) : [];
 
-  const compareMatchDate = (match: any) => {
-    const date = match.date || "";
-    const time = match.time || "00:00";
-    return new Date(`${date}T${time}`);
-  };
+  // Agrupar partidos por fase
+  const matchesByPhase: Record<string, BracketMatch[]> = {};
+  for (const phase of phases) {
+    // Primero intentar por campo 'phase'
+    let phaseMatches = matches.filter((m) => m.phase === phase);
 
-  const selectedTournamentMatches = selectedTournament
-    ? matches.filter((match) => match.tournamentId === selectedTournament.id)
-    : [];
-
-  const orderedMatches = [...selectedTournamentMatches].sort(
-    (a, b) => compareMatchDate(a).getTime() - compareMatchDate(b).getTime()
-  );
-
-  const getPhaseMatchRange = (phaseIndex: number) => {
-    const previousMatches = phases
-      .slice(0, phaseIndex)
-      .reduce((sum, phase) => sum + Math.ceil(phase.actualTeams / 2), 0);
-    const currentMatches = Math.ceil(phases[phaseIndex].actualTeams / 2);
-    return { start: previousMatches, end: previousMatches + currentMatches };
-  };
-
-  // Calcular fases dinámicamente basado en número de equipos
-  const calculatePhases = (teamCount: number) => {
-    const phases = [];
-    let teams = teamCount;
-
-    // Redondear a la potencia de 2 más cercana
-    let roundedTeams = 1;
-    while (roundedTeams < teams) {
-      roundedTeams *= 2;
+    // Si ningún partido tiene campo 'phase', distribuir por orden cronológico
+    if (matches.every((m) => m.phase === "F") && phases.length > 1) {
+      const firstPhaseCount = matchesPerPhase(phases[0], selectedTournament!.teams, phases);
+      let cursor = 0;
+      for (const ph of phases) {
+        const count = matchesPerPhase(ph, selectedTournament!.teams, phases);
+        matchesByPhase[ph] = matches.slice(cursor, cursor + count);
+        cursor += count;
+      }
+      break;
     }
+    matchesByPhase[phase] = phaseMatches.sort((a, b) => a.matchNumber - b.matchNumber);
+  }
 
-    // Generar fases según cantidad de equipos
-    if (roundedTeams === 2) {
-      phases.push({ name: "Gran Final", teams: 2, actualTeams: teams, bracket: "final" });
-    } else if (roundedTeams === 4) {
-      phases.push({ name: "Cuartos de Final", teams: 4, actualTeams: teams, bracket: "quarters" });
-      phases.push({ name: "Semifinales", teams: 2, actualTeams: 2, bracket: "semis" });
-      phases.push({ name: "Gran Final", teams: 2, actualTeams: 2, bracket: "final" });
-    } else if (roundedTeams === 8) {
-      phases.push({ name: "8avos de Final", teams: 8, actualTeams: teams, bracket: "eighths" });
-      phases.push({ name: "Cuartos de Final", teams: 4, actualTeams: 4, bracket: "quarters" });
-      phases.push({ name: "Semifinales", teams: 2, actualTeams: 2, bracket: "semis" });
-      phases.push({ name: "Gran Final", teams: 2, actualTeams: 2, bracket: "final" });
-    } else if (roundedTeams === 16) {
-      phases.push({ name: "16avos de Final", teams: 16, actualTeams: teams, bracket: "sixteenths" });
-      phases.push({ name: "8avos de Final", teams: 8, actualTeams: 8, bracket: "eighths" });
-      phases.push({ name: "Cuartos de Final", teams: 4, actualTeams: 4, bracket: "quarters" });
-      phases.push({ name: "Semifinales", teams: 2, actualTeams: 2, bracket: "semis" });
-      phases.push({ name: "Gran Final", teams: 2, actualTeams: 2, bracket: "final" });
-    } else if (roundedTeams === 32) {
-      phases.push({ name: "32avos de Final", teams: 32, actualTeams: teams, bracket: "thirtytwos" });
-      phases.push({ name: "16avos de Final", teams: 16, actualTeams: 16, bracket: "sixteenths" });
-      phases.push({ name: "8avos de Final", teams: 8, actualTeams: 8, bracket: "eighths" });
-      phases.push({ name: "Cuartos de Final", teams: 4, actualTeams: 4, bracket: "quarters" });
-      phases.push({ name: "Semifinales", teams: 2, actualTeams: 2, bracket: "semis" });
-      phases.push({ name: "Gran Final", teams: 2, actualTeams: 2, bracket: "final" });
-    }
-
-    return phases;
+  // Cuántos slots hay por fase para dibujar las filas
+  const slotsPerPhase = (phase: string): number => {
+    if (!selectedTournament) return 1;
+    return matchesPerPhase(phase, selectedTournament.teams, phases);
   };
 
-  const phases = selectedTournament ? calculatePhases(selectedTournament.teams) : [];
+  const maxSlots = phases.length > 0 ? slotsPerPhase(phases[0]) : 1;
+
+  // Altura de cada slot en px para calcular conectores SVG
+  const SLOT_H = 100; // px por slot de partido
+  const PHASE_HEADER_H = 48; // px del encabezado de fase
+  const CARD_H = 80; // altura aprox de la tarjeta
+  const COL_W = 256; // w-64
+  const GAP_W = 48; // gap entre columnas (conector)
+
+  const totalH = maxSlots * SLOT_H + PHASE_HEADER_H + 64;
 
   return (
     <div className="space-y-6 min-h-[calc(100vh-8rem)] flex flex-col">
+      {/* Header */}
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Llaves del Torneo</h1>
-          <p className="mt-1 text-sm text-gray-500">Torneo Interfacultades 2026-I - Fase Final</p>
+          <p className="mt-1 text-sm text-gray-500">
+            {selectedTournament
+              ? `${selectedTournament.name} · ${selectedTournament.teams} equipos`
+              : "Selecciona un deporte y torneo"}
+          </p>
         </div>
       </div>
 
-      {/* Selectores de Deporte y Torneo */}
+      {/* Selectores */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -169,22 +367,25 @@ export function Brackets() {
                 <SelectValue placeholder="Seleccionar deporte" />
               </SelectTrigger>
               <SelectContent>
-                {sports.map(sport => (
-                  <SelectItem key={sport} value={sport}>{sport}</SelectItem>
+                {sports.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-900 mb-2">Torneo</label>
-            <Select value={selectedTournamentId} onValueChange={setSelectedTournamentId} disabled={!selectedSport}>
+            <Select
+              value={selectedTournamentId}
+              onValueChange={setSelectedTournamentId}
+              disabled={!selectedSport}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar torneo" />
               </SelectTrigger>
               <SelectContent>
-                {filteredTournaments.map(tournament => (
-                  <SelectItem key={tournament.id} value={tournament.id}>{tournament.name}</SelectItem>
+                {filteredTournaments.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -192,84 +393,197 @@ export function Brackets() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex-1 overflow-x-auto relative min-w-[800px]">
+      {/* Bracket */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex-1 overflow-auto">
         {!selectedTournament ? (
+          <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-3">
+            <svg className="w-12 h-12 text-gray-200" fill="none" viewBox="0 0 48 48">
+              <rect x="4" y="8" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="2"/>
+              <rect x="4" y="30" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="2"/>
+              <rect x="28" y="19" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="2"/>
+              <line x1="20" y1="13" x2="28" y2="13" stroke="currentColor" strokeWidth="2"/>
+              <line x1="20" y1="35" x2="28" y2="35" stroke="currentColor" strokeWidth="2"/>
+              <line x1="24" y1="13" x2="24" y2="35" stroke="currentColor" strokeWidth="2"/>
+              <line x1="24" y1="24" x2="28" y2="24" stroke="currentColor" strokeWidth="2"/>
+            </svg>
+            <p className="text-sm">Selecciona un torneo para ver las llaves</p>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-64 text-gray-400">
-            <p>Selecciona un torneo para ver las llaves</p>
+            <span className="animate-pulse text-sm">Cargando partidos...</span>
           </div>
         ) : (
-          <>
-            <div className="mb-4 text-sm text-gray-600">
-              <p><strong>{selectedTournament.name}</strong> - {selectedTournament.teams} equipos</p>
-            </div>
-            
-            {/* Dynamic Bracket representation */}
-            <div className="flex h-full py-8 px-4 items-start justify-between min-w-max w-full gap-6 pr-8">
-              {phases.map((phase, phaseIndex) => (
-                <div key={phaseIndex}>
-                  {/* Phase Column */}
-                  <div className={`flex-shrink-0 flex flex-col overflow-hidden justify-around w-64 ${phaseIndex > 0 ? 'space-y-12' : 'space-y-4'}`}>
-                    <h3 className="text-center font-bold text-gray-500 mb-4">{phase.name}</h3>
-                    
-                    {phase.name === "Gran Final" ? (
-                      <div className="flex flex-col justify-center">
-                        {orderedMatches.length > 0 ? (
-                          orderedMatches.slice(getPhaseMatchRange(phaseIndex).start, getPhaseMatchRange(phaseIndex).end).map((match, matchIndex) => (
-                            <div key={match.id ?? matchIndex} className="bg-gradient-to-br from-yellow-50 to-white border-2 border-yellow-400 rounded-xl p-3 mb-4 shadow-lg">
-                              <p className="text-sm font-semibold text-gray-700 truncate max-w-[12rem]">{match.team1 || `Equipo ${matchIndex * 2 + 1}`}</p>
-                              <p className="text-2xl font-black text-gray-900 text-center">{isMatchFinalized(match) ? `${match.score1} - ${match.score2}` : 'VS'}</p>
-                              <p className="text-sm font-semibold text-gray-700 text-right truncate max-w-[12rem]">{match.team2 || `Equipo ${matchIndex * 2 + 2}`}</p>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-3 text-center text-gray-500">
-                            No hay partidos programados para la final
-                          </div>
-                        )}
+          <div className="overflow-x-auto pb-4">
+            <div
+              className="flex items-start gap-0"
+              style={{ minWidth: phases.length * (COL_W + GAP_W) }}
+            >
+              {phases.map((phase, phaseIdx) => {
+                const slots = slotsPerPhase(phase);
+                const phaseMatches = matchesByPhase[phase] ?? [];
+                const isFinal = phase === "F";
+                const isLast = phaseIdx === phases.length - 1;
+
+                // Altura total de esta columna para centrar los slots
+                const colH = maxSlots * SLOT_H + PHASE_HEADER_H;
+
+                // Espaciado vertical entre slots: los slots se distribuyen uniformemente
+                // En la primera fase ocupan todos los slots, en fases siguientes se reducen
+                const slotSpacing = maxSlots > 1 ? (colH - PHASE_HEADER_H - CARD_H) / (maxSlots - 1) : 0;
+                const groupSize = maxSlots / slots; // cuántos slots del primer nivel "alimentan" este
+                const topOffset = (groupSize - 1) * slotSpacing / 2; // centrar dentro del grupo
+
+                return (
+                  <div key={phase} className="flex items-start">
+                    {/* Columna de fase */}
+                    <div style={{ width: COL_W }}>
+                      {/* Encabezado */}
+                      <div
+                        className={`text-center font-bold text-sm mb-4 py-2 px-3 rounded-lg ${
+                          isFinal
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                        style={{ height: PHASE_HEADER_H }}
+                      >
+                        {PHASE_LABELS[phase] ?? phase}
+                        <div className="text-xs font-normal text-gray-400 mt-0.5">
+                          {slots} {slots === 1 ? "partido" : "partidos"}
+                        </div>
                       </div>
-                    ) : (
-                      Array.from({ length: Math.ceil(phase.actualTeams / 2) }).map((_, matchIndex) => {
-                        const phaseRange = getPhaseMatchRange(phaseIndex);
-                        const match = orderedMatches[phaseRange.start + matchIndex];
-                        return (
-                          <div key={match?.id ?? matchIndex} className="relative">
-                            <div className={`bg-gray-50 border border-gray-200 rounded-lg p-2 flex flex-col shadow-sm ${phaseIndex === phases.length - 1 ? 'border-2 border-green-500' : ''}`}>
-                              <div className="flex justify-between items-center py-2 px-3 border-b border-gray-200 font-bold text-gray-900">
-                                <span className="truncate max-w-[10rem]">{match?.team1 ?? `Equipo ${matchIndex * 2 + 1}`}</span>
-                                <span>{match ? (isMatchFinalized(match) ? `${match.score1} - ${match.score2}` : 'VS') : '-'}</span>
-                              </div>
-                              <div className="flex justify-between items-center py-2 px-3 text-gray-500">
-                                <span className="truncate max-w-[10rem]">{match?.team2 ?? `Equipo ${matchIndex * 2 + 2}`}</span>
-                                <span className="text-xs">{match ? `${match.date} ${match.time}` : ''}</span>
-                              </div>
+
+                      {/* Slots de partidos */}
+                      <div
+                        className="relative"
+                        style={{ height: colH - PHASE_HEADER_H }}
+                      >
+                        {Array.from({ length: slots }).map((_, slotIdx) => {
+                          const match = phaseMatches[slotIdx] ?? null;
+                          const top = isFinal && slots === 1
+                            ? (colH - PHASE_HEADER_H - CARD_H) / 2
+                            : topOffset + slotIdx * groupSize * slotSpacing;
+
+                          return (
+                            <div
+                              key={slotIdx}
+                              className="absolute"
+                              style={{ top, left: 0, width: COL_W }}
+                            >
+                              <MatchCard match={match} isFinal={isFinal} />
                             </div>
-                            <div className="absolute right-4 top-1/2 w-4 border-b-2 border-green-500"></div>
-                          </div>
-                        );
-                      })
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Conectores SVG entre esta fase y la siguiente */}
+                    {!isLast && (
+                      <svg
+                        width={GAP_W}
+                        height={colH}
+                        style={{ flexShrink: 0, overflow: "visible", marginTop: 0 }}
+                      >
+                        {Array.from({ length: slots }).map((_, slotIdx) => {
+                          const nextSlots = slotsPerPhase(phases[phaseIdx + 1]);
+                          // dos matches de esta fase → un match en la siguiente
+                          const pairIdx = Math.floor(slotIdx / 2);
+
+                          const thisTop =
+                            PHASE_HEADER_H +
+                            (isFinal && slots === 1
+                              ? (colH - PHASE_HEADER_H - CARD_H) / 2
+                              : topOffset + slotIdx * groupSize * slotSpacing) +
+                            CARD_H / 2;
+
+                          const nextGroupSize = maxSlots / nextSlots;
+                          const nextTopOffset = (nextGroupSize - 1) * slotSpacing / 2;
+                          const nextMatchTop =
+                            PHASE_HEADER_H +
+                            nextTopOffset +
+                            pairIdx * nextGroupSize * slotSpacing +
+                            CARD_H / 2;
+
+                          const isTop = slotIdx % 2 === 0;
+                          const midX = GAP_W / 2;
+
+                          return (
+                            <g key={slotIdx}>
+                              {/* línea horizontal desde la tarjeta hasta el medio */}
+                              <line
+                                x1={0}
+                                y1={thisTop}
+                                x2={midX}
+                                y2={thisTop}
+                                stroke="#16a34a"
+                                strokeWidth={1.5}
+                                strokeDasharray={isMatchFinalized(phaseMatches[slotIdx]) ? "none" : "4 3"}
+                              />
+                              {/* línea vertical que une el par */}
+                              {isTop && slotIdx + 1 < slots && (
+                                <line
+                                  x1={midX}
+                                  y1={thisTop}
+                                  x2={midX}
+                                  y2={
+                                    PHASE_HEADER_H +
+                                    topOffset +
+                                    (slotIdx + 1) * groupSize * slotSpacing +
+                                    CARD_H / 2
+                                  }
+                                  stroke="#16a34a"
+                                  strokeWidth={1.5}
+                                  strokeDasharray="4 3"
+                                />
+                              )}
+                              {/* línea horizontal desde el medio hacia la siguiente fase */}
+                              {isTop && (
+                                <line
+                                  x1={midX}
+                                  y1={nextMatchTop}
+                                  x2={GAP_W}
+                                  y2={nextMatchTop}
+                                  stroke="#16a34a"
+                                  strokeWidth={1.5}
+                                  strokeDasharray="4 3"
+                                />
+                              )}
+                            </g>
+                          );
+                        })}
+                      </svg>
                     )}
                   </div>
-
-                  {/* Connectors between phases */}
-                  {phaseIndex < phases.length - 1 && (
-                    <div className="flex flex-col justify-around w-8 relative">
-                      {phase.name !== "Semifinales" && (
-                        <>
-                          <div className="absolute right-0 top-1/4 bottom-3/4 w-8 border-t-2 border-r-2 border-b-2 border-green-500 rounded-r-lg"></div>
-                          <div className="absolute right-0 top-1/2 w-8 border-b-2 border-green-500"></div>
-                        </>
-                      )}
-                      {phase.name === "Semifinales" && (
-                        <div className="absolute right-0 top-1/2 w-8 border-b-2 border-gray-300"></div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </>
+          </div>
         )}
       </div>
+
+      {/* Leyenda */}
+      {selectedTournament && !loading && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-wrap gap-6 text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            <div className="w-8 border-t-2 border-green-600" />
+            <span>Partido finalizado</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-8 border-t-2 border-green-600 border-dashed" style={{ borderStyle: "dashed" }} />
+            <span>Partido pendiente</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-green-100 border border-green-400" />
+            <span>Equipo ganador</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded bg-yellow-100 border border-yellow-400" />
+            <span>Gran Final</span>
+          </div>
+          <div className="ml-auto text-gray-400">
+            {matches.filter((m) => isMatchFinalized(m)).length} / {matches.length} partidos finalizados
+          </div>
+        </div>
+      )}
     </div>
   );
 }

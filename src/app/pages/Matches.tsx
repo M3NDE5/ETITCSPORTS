@@ -11,13 +11,14 @@ import {
   updateDoc,
   doc,
   deleteDoc,
+  setDoc,
 } from "firebase/firestore";
 
 interface Tournament {
   id: string;
   name: string;
   sport: string;
-  teams: string[]; // ← array de IDs de equipos inscritos
+  teams: string[];
 }
 
 interface Team {
@@ -40,7 +41,7 @@ interface Match {
   date: string;
   time: string;
   location: string;
-  status: "Pendiente"  | "Finalizado";
+  status: "Pendiente" | "Finalizado";
   score1: number | null;
   score2: number | null;
   createdAt?: Date;
@@ -91,7 +92,6 @@ export function Matches() {
   useEffect(() => {
     const loadAll = async () => {
       try {
-        // Torneos — lee el campo teams[] llenado desde Teams al inscribir
         const tSnap = await getDocs(query(collection(db, "torneos"), orderBy("createdAt", "desc")));
         const tData: Tournament[] = tSnap.docs.map((d) => ({
           id: d.id,
@@ -101,7 +101,6 @@ export function Matches() {
         }));
         setTournaments(tData);
 
-        // Todos los equipos
         const eSnap = await getDocs(query(collection(db, "teams"), orderBy("name")));
         const eData: Team[] = eSnap.docs.map((d) => ({
           id: d.id,
@@ -133,11 +132,98 @@ export function Matches() {
     setMatches(mData);
   };
 
-  // Equipos disponibles = solo los inscritos en el torneo seleccionado (via teams[])
   const selectedTournament = tournaments.find((t) => t.id === form.tournamentId);
   const teamsForTournament: Team[] = selectedTournament
     ? allTeams.filter((team) => selectedTournament.teams.includes(team.id))
     : [];
+
+  // ─── Recalcula y escribe standings en Firestore ───────────────────────────
+  const recalcularStandings = async (tournamentId: string) => {
+    const mSnap = await getDocs(
+      query(collection(db, "matches"), orderBy("createdAt", "desc"))
+    );
+    const allMatches: Match[] = mSnap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<Match, "id">),
+    }));
+
+    const torneoMatches = allMatches.filter(
+      (m) =>
+        m.tournamentId === tournamentId &&
+        m.status === "Finalizado" &&
+        m.score1 !== null &&
+        m.score2 !== null
+    );
+
+    const statsMap: {
+      [teamId: string]: {
+        team: string;
+        w: number;
+        d: number;
+        l: number;
+        f: number;
+        a: number;
+        p: number;
+      };
+    } = {};
+
+    const initTeam = (id: string, name: string) => {
+      if (!statsMap[id]) {
+        statsMap[id] = { team: name, w: 0, d: 0, l: 0, f: 0, a: 0, p: 0 };
+      }
+    };
+
+    for (const m of torneoMatches) {
+      const s1 = m.score1 as number;
+      const s2 = m.score2 as number;
+
+      initTeam(m.team1Id, m.team1);
+      initTeam(m.team2Id, m.team2);
+
+      statsMap[m.team1Id].f += s1;
+      statsMap[m.team1Id].a += s2;
+      statsMap[m.team2Id].f += s2;
+      statsMap[m.team2Id].a += s1;
+
+      if (s1 > s2) {
+        statsMap[m.team1Id].w += 1;
+        statsMap[m.team1Id].p += 3;
+        statsMap[m.team2Id].l += 1;
+      } else if (s1 < s2) {
+        statsMap[m.team2Id].w += 1;
+        statsMap[m.team2Id].p += 3;
+        statsMap[m.team1Id].l += 1;
+      } else {
+        // Empate
+        statsMap[m.team1Id].d += 1;
+        statsMap[m.team1Id].p += 1;
+        statsMap[m.team2Id].d += 1;
+        statsMap[m.team2Id].p += 1;
+      }
+    }
+
+    for (const [teamId, stats] of Object.entries(statsMap)) {
+      const gdNum = stats.f - stats.a;
+      const gdStr = gdNum >= 0 ? `+${gdNum}` : `${gdNum}`;
+      const standingRef = doc(db, "standings", tournamentId, "teams", teamId);
+      await setDoc(
+        standingRef,
+        {
+          team: stats.team,
+          puntos: stats.p,
+          ganados: stats.w,
+          empatados: stats.d,
+          perdidos: stats.l,
+          gf: stats.f,
+          gc: stats.a,
+          dg: gdStr,
+          trend: "same",
+        },
+        { merge: true }
+      );
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleSaveMatch = async () => {
     const { tournamentId, team1Id, team2Id, date, time, location } = form;
@@ -195,11 +281,16 @@ export function Matches() {
 
     setSaving(true);
     try {
+      // 1. Guardar resultado del partido
       await updateDoc(doc(db, "matches", resultMatch.id), {
         score1: s1,
         score2: s2,
         status: "Finalizado",
       });
+
+      // 2. Recalcular y escribir standings automáticamente
+      await recalcularStandings(resultMatch.tournamentId);
+
       setResultMatch(null);
       setScore1("");
       setScore2("");
@@ -232,7 +323,8 @@ export function Matches() {
       m.tournamentName.toLowerCase().includes(search) ||
       m.location.toLowerCase().includes(search);
     const matchesSport = filterSport === "Todos" || m.sport === filterSport;
-    const matchesStatus = filterStatus === "Todos" || normalizeStatus(m.status) === normalizeStatus(filterStatus);
+    const matchesStatus =
+      filterStatus === "Todos" || normalizeStatus(m.status) === normalizeStatus(filterStatus);
     return matchesSearch && matchesSport && matchesStatus;
   });
 
@@ -273,7 +365,9 @@ export function Matches() {
             className="block px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-green-500 focus:border-green-500"
           >
             <option value="Todos">Todos los deportes</option>
-            {sports.map((s) => <option key={s}>{s}</option>)}
+            {sports.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
           </select>
           <select
             value={filterStatus}
@@ -297,12 +391,17 @@ export function Matches() {
         <div className="bg-white rounded-xl border border-gray-200 text-center py-16">
           <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No hay partidos programados</p>
-          <p className="text-gray-400 text-sm mt-1">Usa el botón "Programar Partido" para añadir uno</p>
+          <p className="text-gray-400 text-sm mt-1">
+            Usa el botón "Programar Partido" para añadir uno
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
           {filtered.map((m) => (
-            <div key={m.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+            <div
+              key={m.id}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+            >
               <div className="border-b border-gray-100 bg-gray-50 px-6 py-3 flex items-center justify-between">
                 <div className="flex items-center space-x-4 text-sm text-gray-500">
                   <div className="flex items-center">
@@ -315,16 +414,26 @@ export function Matches() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium uppercase ${SPORT_COLORS[m.sport] ?? "bg-gray-100 text-gray-700"}`}>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium uppercase ${
+                      SPORT_COLORS[m.sport] ?? "bg-gray-100 text-gray-700"
+                    }`}
+                  >
                     {m.sport}
                   </span>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    isMatchFinalized(m) ? "bg-gray-100 text-gray-800"
-                    : "bg-green-100 text-green-800"
-                  }`}>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      isMatchFinalized(m)
+                        ? "bg-gray-100 text-gray-800"
+                        : "bg-green-100 text-green-800"
+                    }`}
+                  >
                     {m.status}
                   </span>
-                  <button onClick={() => handleDelete(m.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors">
+                  <button
+                    onClick={() => handleDelete(m.id)}
+                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                  >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -338,7 +447,9 @@ export function Matches() {
                 <div className="flex items-center justify-between max-w-3xl mx-auto">
                   <div className="flex flex-col items-center flex-1">
                     <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-                      <span className="text-xl font-bold text-gray-400">{m.team1.substring(0, 2).toUpperCase()}</span>
+                      <span className="text-xl font-bold text-gray-400">
+                        {m.team1.substring(0, 2).toUpperCase()}
+                      </span>
                     </div>
                     <span className="text-lg font-bold text-gray-900 text-center">{m.team1}</span>
                   </div>
@@ -355,7 +466,11 @@ export function Matches() {
                     )}
                     {!isMatchFinalized(m) && (
                       <button
-                        onClick={() => { setResultMatch(m); setScore1(""); setScore2(""); }}
+                        onClick={() => {
+                          setResultMatch(m);
+                          setScore1("");
+                          setScore2("");
+                        }}
                         className="mt-4 inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
                       >
                         Registrar Resultado
@@ -371,7 +486,9 @@ export function Matches() {
 
                   <div className="flex flex-col items-center flex-1">
                     <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-                      <span className="text-xl font-bold text-gray-400">{m.team2.substring(0, 2).toUpperCase()}</span>
+                      <span className="text-xl font-bold text-gray-400">
+                        {m.team2.substring(0, 2).toUpperCase()}
+                      </span>
                     </div>
                     <span className="text-lg font-bold text-gray-900 text-center">{m.team2}</span>
                   </div>
@@ -395,20 +512,24 @@ export function Matches() {
               </label>
               <select
                 value={form.tournamentId}
-                onChange={(e) => setForm({ ...form, tournamentId: e.target.value, team1Id: "", team2Id: "" })}
+                onChange={(e) =>
+                  setForm({ ...form, tournamentId: e.target.value, team1Id: "", team2Id: "" })
+                }
                 className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">Selecciona un torneo</option>
                 {tournaments.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name} — {t.sport}</option>
+                  <option key={t.id} value={t.id}>
+                    {t.name} — {t.sport}
+                  </option>
                 ))}
               </select>
             </div>
 
-            {/* Aviso si no hay equipos inscritos */}
             {form.tournamentId && teamsForTournament.length === 0 && (
               <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                Este torneo no tiene equipos inscritos. Ve a <strong>Equipos</strong> e inscribe equipos usando el botón <strong>"Inscribir"</strong>.
+                Este torneo no tiene equipos inscritos. Ve a <strong>Equipos</strong> e inscribe
+                equipos usando el botón <strong>"Inscribir"</strong>.
               </p>
             )}
 
@@ -426,7 +547,11 @@ export function Matches() {
                   <option value="">Seleccionar</option>
                   {teamsForTournament
                     .filter((t) => t.id !== form.team2Id)
-                    .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div>
@@ -442,7 +567,11 @@ export function Matches() {
                   <option value="">Seleccionar</option>
                   {teamsForTournament
                     .filter((t) => t.id !== form.team1Id)
-                    .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
@@ -493,7 +622,11 @@ export function Matches() {
                 className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">Seleccionar cancha</option>
-                {CANCHAS.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CANCHAS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -517,7 +650,12 @@ export function Matches() {
       </Dialog>
 
       {/* Modal: Registrar Resultado */}
-      <Dialog open={!!resultMatch} onOpenChange={(open) => { if (!open) setResultMatch(null); }}>
+      <Dialog
+        open={!!resultMatch}
+        onOpenChange={(open) => {
+          if (!open) setResultMatch(null);
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Registrar Resultado</DialogTitle>
@@ -531,8 +669,11 @@ export function Matches() {
                 <div className="flex-1 text-center">
                   <p className="font-semibold text-gray-900 text-sm mb-2">{resultMatch.team1}</p>
                   <input
-                    type="number" min="0" value={score1}
-                    onChange={(e) => setScore1(e.target.value)} placeholder="0"
+                    type="number"
+                    min="0"
+                    value={score1}
+                    onChange={(e) => setScore1(e.target.value)}
+                    placeholder="0"
                     className="block w-full text-center text-3xl font-black px-3 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-green-500"
                   />
                 </div>
@@ -540,18 +681,26 @@ export function Matches() {
                 <div className="flex-1 text-center">
                   <p className="font-semibold text-gray-900 text-sm mb-2">{resultMatch.team2}</p>
                   <input
-                    type="number" min="0" value={score2}
-                    onChange={(e) => setScore2(e.target.value)} placeholder="0"
+                    type="number"
+                    min="0"
+                    value={score2}
+                    onChange={(e) => setScore2(e.target.value)}
+                    placeholder="0"
                     className="block w-full text-center text-3xl font-black px-3 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-green-500"
                   />
                 </div>
               </div>
               <div className="flex gap-3 pt-1">
                 <button
-                  onClick={handleSaveResult} disabled={saving}
+                  onClick={handleSaveResult}
+                  disabled={saving}
                   className="flex-1 flex items-center justify-center px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm disabled:opacity-50"
                 >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                  )}
                   Confirmar Resultado
                 </button>
                 <DialogClose asChild>
