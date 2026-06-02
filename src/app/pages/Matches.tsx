@@ -17,6 +17,7 @@ interface Tournament {
   id: string;
   name: string;
   sport: string;
+  teams: string[]; // ← array de IDs de equipos inscritos
 }
 
 interface Team {
@@ -24,6 +25,7 @@ interface Team {
   name: string;
   sport: string;
   tournament: string;
+  enrolledTournaments?: string[];
 }
 
 interface Match {
@@ -38,7 +40,7 @@ interface Match {
   date: string;
   time: string;
   location: string;
-  status: "Pendiente" | "En juego" | "Finalizado";
+  status: "Pendiente"  | "Finalizado";
   score1: number | null;
   score2: number | null;
   createdAt?: Date;
@@ -89,20 +91,24 @@ export function Matches() {
   useEffect(() => {
     const loadAll = async () => {
       try {
+        // Torneos — lee el campo teams[] llenado desde Teams al inscribir
         const tSnap = await getDocs(query(collection(db, "torneos"), orderBy("createdAt", "desc")));
         const tData: Tournament[] = tSnap.docs.map((d) => ({
           id: d.id,
           name: d.data().name,
           sport: d.data().sport,
+          teams: Array.isArray(d.data().teams) ? d.data().teams : [],
         }));
         setTournaments(tData);
 
+        // Todos los equipos
         const eSnap = await getDocs(query(collection(db, "teams"), orderBy("name")));
         const eData: Team[] = eSnap.docs.map((d) => ({
           id: d.id,
           name: d.data().name,
           sport: d.data().sport,
           tournament: d.data().tournament,
+          enrolledTournaments: d.data().enrolledTournaments ?? [],
         }));
         setAllTeams(eData);
 
@@ -127,15 +133,14 @@ export function Matches() {
     setMatches(mData);
   };
 
-  const teamsForTournament = form.tournamentId
-    ? allTeams.filter((t) => t.tournament === form.tournamentId)
-    : [];
-
+  // Equipos disponibles = solo los inscritos en el torneo seleccionado (via teams[])
   const selectedTournament = tournaments.find((t) => t.id === form.tournamentId);
+  const teamsForTournament: Team[] = selectedTournament
+    ? allTeams.filter((team) => selectedTournament.teams.includes(team.id))
+    : [];
 
   const handleSaveMatch = async () => {
     const { tournamentId, team1Id, team2Id, date, time, location } = form;
-
     if (!tournamentId || !team1Id || !team2Id || !date || !time || !location) {
       alert("Por favor completa todos los campos");
       return;
@@ -277,7 +282,6 @@ export function Matches() {
           >
             <option value="Todos">Todos los estados</option>
             <option>Pendiente</option>
-            <option>En juego</option>
             <option>Finalizado</option>
           </select>
         </div>
@@ -298,10 +302,7 @@ export function Matches() {
       ) : (
         <div className="space-y-4">
           {filtered.map((m) => (
-            <div
-              key={m.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
-            >
+            <div key={m.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
               <div className="border-b border-gray-100 bg-gray-50 px-6 py-3 flex items-center justify-between">
                 <div className="flex items-center space-x-4 text-sm text-gray-500">
                   <div className="flex items-center">
@@ -314,29 +315,16 @@ export function Matches() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium uppercase ${
-                      SPORT_COLORS[m.sport] ?? "bg-gray-100 text-gray-700"
-                    }`}
-                  >
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium uppercase ${SPORT_COLORS[m.sport] ?? "bg-gray-100 text-gray-700"}`}>
                     {m.sport}
                   </span>
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      m.status === "Finalizado"
-                        ? "bg-gray-100 text-gray-800"
-                        : m.status === "En juego"
-                        ? "bg-yellow-100 text-yellow-800"
-                        : "bg-green-100 text-green-800"
-                    }`}
-                  >
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    m.status === "Finalizado" ? "bg-gray-100 text-gray-800"
+                    : "bg-green-100 text-green-800"
+                  }`}>
                     {m.status}
                   </span>
-                  <button
-                    onClick={() => handleDelete(m.id)}
-                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                    title="Eliminar partido"
-                  >
+                  <button onClick={() => handleDelete(m.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -350,9 +338,7 @@ export function Matches() {
                 <div className="flex items-center justify-between max-w-3xl mx-auto">
                   <div className="flex flex-col items-center flex-1">
                     <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-                      <span className="text-xl font-bold text-gray-400">
-                        {m.team1.substring(0, 2).toUpperCase()}
-                      </span>
+                      <span className="text-xl font-bold text-gray-400">{m.team1.substring(0, 2).toUpperCase()}</span>
                     </div>
                     <span className="text-lg font-bold text-gray-900 text-center">{m.team1}</span>
                   </div>
@@ -367,20 +353,14 @@ export function Matches() {
                     ) : (
                       <span className="text-2xl font-bold text-gray-300">VS</span>
                     )}
-
                     {m.status === "Pendiente" && (
                       <button
-                        onClick={() => {
-                          setResultMatch(m);
-                          setScore1("");
-                          setScore2("");
-                        }}
-                        className="mt-4 inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        onClick={() => { setResultMatch(m); setScore1(""); setScore2(""); }}
+                        className="mt-4 inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
                       >
                         Registrar Resultado
                       </button>
                     )}
-
                     {m.status === "Finalizado" && (
                       <div className="mt-3 flex items-center text-sm text-green-600 font-medium">
                         <CheckCircle2 className="w-4 h-4 mr-1" />
@@ -391,9 +371,7 @@ export function Matches() {
 
                   <div className="flex flex-col items-center flex-1">
                     <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-                      <span className="text-xl font-bold text-gray-400">
-                        {m.team2.substring(0, 2).toUpperCase()}
-                      </span>
+                      <span className="text-xl font-bold text-gray-400">{m.team2.substring(0, 2).toUpperCase()}</span>
                     </div>
                     <span className="text-lg font-bold text-gray-900 text-center">{m.team2}</span>
                   </div>
@@ -410,7 +388,6 @@ export function Matches() {
           <DialogHeader>
             <DialogTitle>Programar Partido</DialogTitle>
           </DialogHeader>
-
           <div className="space-y-4 pt-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -418,19 +395,22 @@ export function Matches() {
               </label>
               <select
                 value={form.tournamentId}
-                onChange={(e) =>
-                  setForm({ ...form, tournamentId: e.target.value, team1Id: "", team2Id: "" })
-                }
+                onChange={(e) => setForm({ ...form, tournamentId: e.target.value, team1Id: "", team2Id: "" })}
                 className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">Selecciona un torneo</option>
                 {tournaments.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} — {t.sport}
-                  </option>
+                  <option key={t.id} value={t.id}>{t.name} — {t.sport}</option>
                 ))}
               </select>
             </div>
+
+            {/* Aviso si no hay equipos inscritos */}
+            {form.tournamentId && teamsForTournament.length === 0 && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Este torneo no tiene equipos inscritos. Ve a <strong>Equipos</strong> e inscribe equipos usando el botón <strong>"Inscribir"</strong>.
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -440,15 +420,13 @@ export function Matches() {
                 <select
                   value={form.team1Id}
                   onChange={(e) => setForm({ ...form, team1Id: e.target.value })}
-                  disabled={!form.tournamentId}
+                  disabled={!form.tournamentId || teamsForTournament.length === 0}
                   className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-green-500 focus:border-green-500 disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <option value="">Seleccionar</option>
                   {teamsForTournament
                     .filter((t) => t.id !== form.team2Id)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
+                    .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <div>
@@ -458,24 +436,16 @@ export function Matches() {
                 <select
                   value={form.team2Id}
                   onChange={(e) => setForm({ ...form, team2Id: e.target.value })}
-                  disabled={!form.tournamentId}
+                  disabled={!form.tournamentId || teamsForTournament.length === 0}
                   className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-green-500 focus:border-green-500 disabled:bg-gray-50 disabled:text-gray-400"
                 >
                   <option value="">Seleccionar</option>
                   {teamsForTournament
                     .filter((t) => t.id !== form.team1Id)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
+                    .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
             </div>
-
-            {form.tournamentId && teamsForTournament.length === 0 && (
-              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                Este torneo no tiene equipos registrados. Ve a <strong>Equipos</strong> y asigna equipos a este torneo primero.
-              </p>
-            )}
 
             {selectedTournament && (
               <div>
@@ -523,9 +493,7 @@ export function Matches() {
                 className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">Seleccionar cancha</option>
-                {CANCHAS.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
+                {CANCHAS.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
 
@@ -554,45 +522,33 @@ export function Matches() {
           <DialogHeader>
             <DialogTitle>Registrar Resultado</DialogTitle>
           </DialogHeader>
-
           {resultMatch && (
             <div className="space-y-5 pt-2">
               <p className="text-sm text-gray-500 text-center">
                 {resultMatch.date} — {resultMatch.time} · {resultMatch.location}
               </p>
-
               <div className="flex items-center gap-4">
                 <div className="flex-1 text-center">
                   <p className="font-semibold text-gray-900 text-sm mb-2">{resultMatch.team1}</p>
                   <input
-                    type="number"
-                    min="0"
-                    value={score1}
-                    onChange={(e) => setScore1(e.target.value)}
-                    placeholder="0"
+                    type="number" min="0" value={score1}
+                    onChange={(e) => setScore1(e.target.value)} placeholder="0"
                     className="block w-full text-center text-3xl font-black px-3 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-green-500"
                   />
                 </div>
-
                 <span className="text-2xl font-bold text-gray-300 flex-shrink-0">-</span>
-
                 <div className="flex-1 text-center">
                   <p className="font-semibold text-gray-900 text-sm mb-2">{resultMatch.team2}</p>
                   <input
-                    type="number"
-                    min="0"
-                    value={score2}
-                    onChange={(e) => setScore2(e.target.value)}
-                    placeholder="0"
+                    type="number" min="0" value={score2}
+                    onChange={(e) => setScore2(e.target.value)} placeholder="0"
                     className="block w-full text-center text-3xl font-black px-3 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-green-500"
                   />
                 </div>
               </div>
-
               <div className="flex gap-3 pt-1">
                 <button
-                  onClick={handleSaveResult}
-                  disabled={saving}
+                  onClick={handleSaveResult} disabled={saving}
                   className="flex-1 flex items-center justify-center px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
